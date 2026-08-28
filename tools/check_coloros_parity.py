@@ -12,6 +12,9 @@ FILES = {
     "external_catalog": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsExternalLiquidGlassCatalog.kt",
     "coui_presets": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsCouiPresetInventory.kt",
     "systemui_recipes": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiShippingRecipeInventory.kt",
+    "interactive_bridge": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveEffectBridge.kt",
+    "interactive_recipes": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveRecipeInventory.kt",
+    "interactive_resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveParityResolver.kt",
     "parameter_audit": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParameterAuditBridge.kt",
     "scope": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiAuditScope.kt",
     "resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParityResolver.kt",
@@ -101,6 +104,42 @@ require("route_host", "must not execute through the direct shader bridge", "HOST
 require("resolver", "systemUiShippingContract", "every exact SystemUI recipe row must receive a precise Kyant contract")
 require("registry", "Route.SYSTEMUI_HOST", "host-only shipping recipes must remain explicit SystemUI host boundaries")
 
+# Interactive SystemUI material APIs must stay independently executable and fail closed on draw.
+for token in [
+    "NOTIFICATION_SPOTLIGHT_PREFIX",
+    "QS_MEDIA_SPOTLIGHT_PREFIX",
+    "VOLUME_SETTINGS_SPOTLIGHT",
+    "SCENARIO_METABALL_LIGHT",
+    "notificationSpotLightKinds",
+    "qsMediaClipShapes",
+]:
+    require("interactive_recipes", token, "runtime interactive SystemUI states must expand into strict rows")
+require("inventory", "ColorOsSystemUiInteractiveRecipeInventory", "interactive SystemUI rows must merge into complete inventory")
+require("scope", "ColorOsSystemUiInteractiveRecipeInventory.PREFIX", "interactive rows must participate in CORE_MATERIAL gate")
+require("scope", "ColorOsSystemUiInteractiveParityResolver.resolve", "interactive contracts must resolve before generic SystemUI rules")
+for token in [
+    "markLazyParamsKind",
+    "drawSpotLightEffect",
+    "handleMotionEvent",
+    "ScenarioLightBackgroundDrawable",
+    "restartLight",
+    "dispose",
+    "onRuntimeStatus",
+    "real SystemUI interactive draw completed",
+]:
+    require("interactive_bridge", token, "interactive bridge must execute real shipping draw/touch/lifecycle and expose runtime failures")
+for token in ["Recipe.SPOTLIGHT", "Recipe.METABALL_NEAREST", "Kind.NEAREST_ONLY"]:
+    require("interactive_resolver", token, "interactive ColorOS effects require explicit non-equivalence Kyant contracts")
+for token in [
+    "ColorOsSystemUiInteractiveRecipeInventory.NOTIFICATION_SPOTLIGHT_PREFIX",
+    "ColorOsSystemUiInteractiveRecipeInventory.QS_MEDIA_SPOTLIGHT_PREFIX",
+    "ColorOsSystemUiInteractiveRecipeInventory.VOLUME_SETTINGS_SPOTLIGHT",
+    "ColorOsSystemUiInteractiveRecipeInventory.SCENARIO_METABALL_LIGHT",
+]:
+    require("registry", token, "every interactive recipe family must resolve to a direct ColorOS route")
+require("route_host", "waiting for first real SystemUI draw", "interactive route must not report PASS before shipping draw executes")
+require("route_host", "EffectHostView", "unified host must receive first-frame runtime status from interactive effect host")
+
 for token in ["SYSTEM_UI_PACKAGE", "UX_PACKAGE", "CLOCK_PACKAGE", 'implementation.startsWith("external://")']:
     require("parameter_audit", token, "parameter/resource audit must cover all strict-inventory package owners")
 require("parameter_audit", "inspectExternalShader", "external AGSL/GLSL rows must inspect the real APK resource")
@@ -126,6 +165,10 @@ direct_routes = [
     "COUI_TOOLBAR_STACK",
     "COUI_PROGRESSIVE_BLUR",
     "KEYGUARD_GLASS_BUILDER",
+    "SYSTEMUI_NOTIFICATION_SPOTLIGHT",
+    "SYSTEMUI_QS_MEDIA_SPOTLIGHT",
+    "SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT",
+    "SYSTEMUI_SCENARIO_METABALL_LIGHT",
     "CHROMATIC_SHADER",
     "BAR_GLOW_SHADER",
     "RAW_METABALL_SHADER",
@@ -198,6 +241,7 @@ print(f" - cross-package visual primitives: {len(cross_package_visual_primitives
 print(" - external DEX/shader discovery: guarded")
 print(" - runtime COUI preset expansion: guarded")
 print(" - runtime SystemUI shipping recipe expansion: guarded")
+print(" - direct SystemUI interactive optics/metaball: guarded")
 print(f" - direct routes: {len(direct_routes)}")
 print(f" - Kyant recipes: {len(recipe_names)}")
 print(f" - SystemUI GL assets: {len(gl_assets)}")
