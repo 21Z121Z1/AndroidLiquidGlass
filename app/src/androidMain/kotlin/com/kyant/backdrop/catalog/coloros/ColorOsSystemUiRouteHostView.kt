@@ -99,7 +99,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         clearRouteChildren()
 
         when (route.kind) {
-            ColorOsSystemUiExecutionRegistry.Kind.DIRECT_EXECUTABLE -> runDirect(route, bitmap)
+            ColorOsSystemUiExecutionRegistry.Kind.DIRECT_EXECUTABLE -> runDirect(route, implementation, bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.GL_PIPELINE -> runGl(bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.PARAMETER_EXECUTOR -> runParameterRoute(implementation, route, bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.HOST_BOUND ->
@@ -187,7 +187,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         prefix: String? = null,
     ) {
         if (implementation.startsWith("assets/") || implementation.startsWith("res/raw/")) {
-            showBoundary("PARAMETER/RESOURCE ROUTE — ${route.implementation}")
+            showBoundary("PARAMETER/RESOURCE ROUTE — $implementation\n${route.implementation}")
             return
         }
         parameterAudit.mapCatching { it.inspect(implementation).getOrThrow() }
@@ -197,9 +197,9 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                     add(snapshot.className)
                     snapshot.instanceSource?.let { add("instance=$it") }
                     addAll(snapshot.enumConstants.take(5).map { "enum: $it" })
-                    addAll(snapshot.staticConstants.take(6).map { "const: $it" })
+                    addAll(snapshot.staticConstants.take(8).map { "const: $it" })
                     addAll(snapshot.getterValues.take(6).map { "getter: $it" })
-                    addAll(snapshot.methodSignatures.take(8).map { "api: $it" })
+                    addAll(snapshot.methodSignatures.take(12).map { "api: $it" })
                 }
                 val label = TextView(context).apply {
                     text = evidence.joinToString("\n")
@@ -210,19 +210,23 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                     setBackgroundColor(0x88000000.toInt())
                 }
                 addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                postStatus("PASS — vendor parameter evidence ${snapshot.evidenceCount} entries · ${route.name}")
+                postStatus("PASS — vendor evidence ${snapshot.evidenceCount} entries · ${route.name}")
             }
-            .onFailure { showBoundary("UNAVAILABLE — parameter audit: ${describe(it)}") }
+            .onFailure { showBoundary("UNAVAILABLE — parameter/resource audit: ${describe(it)}") }
     }
 
-    private fun runDirect(route: ColorOsSystemUiExecutionRegistry.Route, bitmap: Bitmap) {
+    private fun runDirect(
+        route: ColorOsSystemUiExecutionRegistry.Route,
+        implementation: String,
+        bitmap: Bitmap,
+    ) {
         when (route) {
             ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_BLUR,
             ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_STROKE,
             ColorOsSystemUiExecutionRegistry.Route.COUI_SPOTLIGHT,
             ColorOsSystemUiExecutionRegistry.Route.COUI_TOOLBAR_STACK,
             ColorOsSystemUiExecutionRegistry.Route.COUI_PROGRESSIVE_BLUR -> {
-                runCoui(route)
+                runCoui(route, implementation)
                 return
             }
             ColorOsSystemUiExecutionRegistry.Route.KEYGUARD_GLASS_BUILDER -> {
@@ -304,7 +308,10 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         }.onFailure { showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}") }
     }
 
-    private fun runCoui(route: ColorOsSystemUiExecutionRegistry.Route) {
+    private fun runCoui(
+        route: ColorOsSystemUiExecutionRegistry.Route,
+        implementation: String,
+    ) {
         val child = CouiSurfaceView(context, radiusPx)
         addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         postStatus("RUNNING — ${route.name} from installed com.oplus.uxdesign")
@@ -314,22 +321,30 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                 val catalog = bridge.catalog()
                 when (route) {
                     ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_BLUR -> {
-                        val preset = choosePreset(catalog.blur)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.BLUR_PREFIX)
+                            ?: choosePreset(catalog.blur)
+                        require(preset in catalog.blur) { "BlurEffectType.$preset missing from installed uxdesign" }
                         bridge.applyBlur(child, preset).getOrThrow()
-                        "COUIMaterialBlurEffect/$preset"
+                        "COUIMaterialBlurEffect/$preset${exactSuffix(implementation)}"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_STROKE -> {
-                        val preset = choosePreset(catalog.stroke)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.STROKE_PREFIX)
+                            ?: choosePreset(catalog.stroke)
+                        require(preset in catalog.stroke) { "StrokeEffectType.$preset missing from installed uxdesign" }
                         bridge.applyStroke(child, preset).getOrThrow()
-                        "COUIMaterialStrokeEffect/$preset"
+                        "COUIMaterialStrokeEffect/$preset${exactSuffix(implementation)}"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_SPOTLIGHT -> {
-                        val preset = choosePreset(catalog.spotLight)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX)
+                            ?: choosePreset(catalog.spotLight)
+                        require(preset in catalog.spotLight) { "SpotLightType.$preset missing from installed uxdesign" }
                         bridge.applySpotLight(child, preset).getOrThrow()
-                        "COUISpotLightEffect/$preset — touch this card to drive hotspot"
+                        "COUISpotLightEffect/$preset${exactSuffix(implementation)} — touch this card to drive hotspot"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_TOOLBAR_STACK -> {
-                        val category = choosePreset(catalog.toolbarCategories)
+                        val category = exactPreset(implementation, ColorOsCouiPresetInventory.TOOLBAR_PREFIX)
+                            ?: choosePreset(catalog.toolbarCategories)
+                        require(category in catalog.toolbarCategories) { "ViewCategory.$category missing from installed uxdesign" }
                         bridge.applyToolbarStack(
                             child,
                             categoryName = category,
@@ -339,7 +354,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                             caustic = true,
                             forceEnable = true,
                         ).getOrThrow()
-                        "ToolbarMaterialEffectDelegate/$category blur+stroke+spotlight+caustic"
+                        "ToolbarMaterialEffectDelegate/$category${exactSuffix(implementation)} blur+stroke+spotlight+caustic"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_PROGRESSIVE_BLUR -> {
                         bridge.applyGradientBlur(child, progress).getOrThrow()
@@ -357,9 +372,19 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         }
     }
 
+    private fun exactPreset(implementation: String, prefix: String): String? =
+        implementation.takeIf { it.startsWith(prefix) }
+            ?.removePrefix(prefix)
+            ?.takeIf { it.isNotBlank() }
+
+    private fun exactSuffix(implementation: String): String =
+        if (implementation.startsWith(ColorOsCouiPresetInventory.PREFIX)) " [exact preset row]" else " [family browser]"
+
     private fun choosePreset(values: List<String>): String {
         val usable = values.filterNot {
-            it.contains("NO_EFFECT", ignoreCase = true) || it.contains("NONE", ignoreCase = true)
+            it.contains("NO_EFFECT", ignoreCase = true) ||
+                it.equals("NONE", ignoreCase = true) ||
+                it.contains("DISABLE", ignoreCase = true)
         }.ifEmpty { values }
         require(usable.isNotEmpty()) { "installed vendor enum exposes no presets" }
         val index = (usable.lastIndex * progress).toInt().coerceIn(0, usable.lastIndex)
