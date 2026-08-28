@@ -7,17 +7,9 @@ import android.graphics.drawable.Drawable
 import java.lang.reflect.Method
 
 /**
- * Executes the shipping SystemUI material preset adapters instead of approximating their
- * values in the demo.
- *
- * ColorOS keeps optics, inner-shadow and gradient-stroke recipes in three singleton adapters:
- * - MixColorTileOpticsAdapter
- * - MixColorTileInnerShadowAdapter
- * - MixColorTileStrokeLineAdapter
- *
- * Each zero-argument getter returns the real parameter object used by SystemUI for a concrete
- * state (tile active/inactive, dialog, seekbar, simple header, media output, ...). This bridge
- * discovers every getter at runtime and injects the returned object into a real BlendDrawable.
+ * Executes shipping SystemUI material preset adapters instead of reconstructing their values.
+ * Common QS presets and notification-specific stroke/inner-shadow adapters are both discovered
+ * from the installed SystemUI package and injected back into a real BlendDrawable.
  */
 internal class ColorOsSystemUiPresetBridge(context: Context) {
     companion object {
@@ -49,6 +41,20 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
                 drawableSetter = "setGradientStrokeLineParams",
                 kyant = "Highlight / stroke",
             ),
+            AdapterSpec(
+                family = Family.STROKE,
+                adapterClass = "com.oplus.systemui.notification.blur.NotificationGradientStrokeLineAdapter",
+                returnClass = "com.oplus.posteffect.params.GradientStrokeLineParams",
+                drawableSetter = "setGradientStrokeLineParams",
+                kyant = "Highlight / notification stroke",
+            ),
+            AdapterSpec(
+                family = Family.INNER_SHADOW,
+                adapterClass = "com.oplus.systemui.notification.blur.NotificationInnerShadowAdapter",
+                returnClass = "com.oplus.posteffect.params.InnerShadowParams",
+                drawableSetter = "setInnerShadowParams",
+                kyant = "InnerShadow / notification card",
+            ),
         )
     }
 
@@ -64,8 +70,7 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
         val kyantCounterpart: String,
         val dark: Boolean,
     ) {
-        val displayName: String
-            get() = methodName.removePrefix("get").replace("Params", "")
+        val displayName: String get() = methodName.removePrefix("get").replace("Params", "")
     }
 
     private data class AdapterSpec(
@@ -82,14 +87,14 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
         Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
     )
     private val loader = systemUiContext.classLoader
-
     private val presetCache: List<Preset> by lazy { discoverPresets() }
 
     fun presets(): List<Preset> = presetCache
 
     fun summary(): String {
         val all = presetCache
-        return "shipping presets=${all.size}; optics=${all.count { it.family == Family.OPTICS }}; " +
+        val adapters = all.map(Preset::adapterClass).distinct().size
+        return "shipping presets=${all.size}; adapters=$adapters; optics=${all.count { it.family == Family.OPTICS }}; " +
             "innerShadow=${all.count { it.family == Family.INNER_SHADOW }}; stroke=${all.count { it.family == Family.STROKE }}"
     }
 
@@ -123,19 +128,16 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
 
         val adapterClass = load(preset.adapterClass)
         val instanceField = adapterClass.getDeclaredField("INSTANCE").apply { isAccessible = true }
-        val adapter = instanceField.get(null)
-            ?: error("${preset.adapterClass}.INSTANCE is null")
+        val adapter = instanceField.get(null) ?: error("${preset.adapterClass}.INSTANCE is null")
         val expectedReturn = load(preset.returnClass)
         val getter = adapterClass.declaredMethods.firstOrNull {
             it.name == preset.methodName && it.parameterCount == 0 && expectedReturn.isAssignableFrom(it.returnType)
         } ?: error("${preset.adapterClass}.${preset.methodName}() not found")
         getter.isAccessible = true
-        val params = getter.invoke(adapter)
-            ?: error("${preset.methodName} returned null")
+        val params = getter.invoke(adapter) ?: error("${preset.methodName} returned null")
 
         val result = invokeRequired(drawable, preset.drawableSetter, params)
         if (result is Boolean && !result) error("${preset.drawableSetter} rejected ${preset.methodName}")
-
         drawable.bounds = Rect(0, 0, width, height)
         drawable
     }
@@ -156,7 +158,7 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
                     .forEach { method ->
                         add(
                             Preset(
-                                id = "${spec.family}:${method.name}",
+                                id = "${spec.adapterClass}:${spec.family}:${method.name}",
                                 family = spec.family,
                                 methodName = method.name,
                                 adapterClass = spec.adapterClass,
@@ -173,15 +175,10 @@ internal class ColorOsSystemUiPresetBridge(context: Context) {
 
     private fun applyCorner(drawable: Any, radiusPx: Float) {
         val cornerTypeClass = load(CORNER_TYPE)
-        val g2 = cornerTypeClass.enumConstants
-            ?.firstOrNull { (it as Enum<*>).name == "G2" }
+        val g2 = cornerTypeClass.enumConstants?.firstOrNull { (it as Enum<*>).name == "G2" }
             ?: error("CornerType.G2 unavailable")
         val corner = load(CORNER_PARAMS)
-            .getDeclaredConstructor(
-                cornerTypeClass,
-                Float::class.javaPrimitiveType!!,
-                Float::class.javaPrimitiveType!!,
-            )
+            .getDeclaredConstructor(cornerTypeClass, Float::class.javaPrimitiveType!!, Float::class.javaPrimitiveType!!)
             .apply { isAccessible = true }
             .newInstance(g2, radiusPx.coerceAtLeast(0f), 1f)
         val result = invokeRequired(drawable, "setCornerParams", corner)
