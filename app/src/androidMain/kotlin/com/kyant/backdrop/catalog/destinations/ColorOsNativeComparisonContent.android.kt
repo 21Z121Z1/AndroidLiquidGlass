@@ -9,6 +9,7 @@ import android.graphics.LinearGradient
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -30,7 +31,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -60,6 +60,8 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.coloros.ColorOsMaterialBridge
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiExecutableBridge
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiLiquidGlassCatalog
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiPostEffectBridge
 import com.kyant.backdrop.catalog.coloros.ColorOsTunableGlassBridge
 import com.kyant.backdrop.catalog.coloros.TunableGlassParams
@@ -77,12 +79,16 @@ import com.kyant.shapes.RoundedRectangle
 import kotlin.math.roundToInt
 
 /**
- * Mechanism-by-mechanism A/B matrix.
+ * ColorOS SystemUI <-> Kyant implementation matrix.
  *
- * The Kyant side calls the upstream implementation in this repository. The
- * ColorOS side dynamically calls code/shaders from the installed ColorOS
- * packages. System-only SurfaceControl features are exposed as diagnostics and
- * are never replaced by a look-alike fallback.
+ * Rules used by this page:
+ * 1. Kyant samples execute the upstream implementation in this repository.
+ * 2. ColorOS samples load classes/shaders from installed ColorOS packages.
+ * 3. A subsystem-specific shader is shown separately even if it shares a
+ *    lower-level post-effect primitive with another SystemUI surface.
+ * 4. SurfaceControl/SystemUI-host/GL-only code is never replaced by a generic
+ *    look-alike. It is listed as a capability with the exact host constraint.
+ * 5. A missing 1:1 Kyant mechanism is labelled as such rather than invented.
  */
 @Composable
 actual fun ColorOsNativeComparisonContent() {
@@ -95,12 +101,17 @@ actual fun ColorOsNativeComparisonContent() {
     var dispersion by remember { mutableFloatStateOf(1f) }
     var progressiveFraction by remember { mutableFloatStateOf(1f) }
     var chromaticOffset by remember { mutableFloatStateOf(5f) }
+    var metaballPhase by remember { mutableFloatStateOf(0.5f) }
+    var barGlowBend by remember { mutableFloatStateOf(0.055f) }
+    var rawMetaballTime by remember { mutableFloatStateOf(1f) }
 
     val backdrop = rememberLayerBackdrop()
     val materialBridge = remember(context) { ColorOsMaterialBridge(context) }
     val postBridge = remember(context) { ColorOsSystemUiPostEffectBridge(context) }
+    val executableBridge = remember(context) { ColorOsSystemUiExecutableBridge(context) }
+    val systemUiCatalog = remember(context) { ColorOsSystemUiLiquidGlassCatalog(context).mappings() }
     val materialCatalog = remember(materialBridge) { materialBridge.catalog() }
-    val postCapabilities = remember(postBridge) { postBridge.capabilities() }
+    val shaderBlendModes = remember(executableBridge) { executableBridge.shaderBlendModes() }
 
     var glassStatus by remember { mutableStateOf("等待 ColorOS 锁屏玻璃…") }
     var blurStatus by remember { mutableStateOf("等待 COUI 模糊…") }
@@ -108,7 +119,12 @@ actual fun ColorOsNativeComparisonContent() {
     var colorStatus by remember { mutableStateOf("等待 ColorOS 材质混色…") }
     var postStatus by remember { mutableStateOf("等待 SystemUI PostEffect…") }
     var strokeStatus by remember { mutableStateOf("等待 COUI 描边…") }
-    var chromaticStatus by remember { mutableStateOf("等待 SystemUI 色差…") }
+    var qsStrokeStatus by remember { mutableStateOf("等待 QS GradientStrokeShader…") }
+    var volumeStrokeStatus by remember { mutableStateOf("等待 VolumeGradientStrokeShader…") }
+    var barGlowStatus by remember { mutableStateOf("等待 SystemUI barglow…") }
+    var chromaticStatus by remember { mutableStateOf("等待 SystemUI chromatic…") }
+    var metaballStatus by remember { mutableStateOf("等待 DrawableShader Metaball…") }
+    var rawMetaballStatus by remember { mutableStateOf("等待 res/raw/metaball.agsl…") }
     var spotStatus by remember { mutableStateOf("等待 COUI 聚光…") }
     var causticStatus by remember { mutableStateOf("等待 ColorOS 焦散阴影…") }
 
@@ -144,46 +160,44 @@ actual fun ColorOsNativeComparisonContent() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             BasicText(
-                "Kyant ↔ ColorOS Liquid Glass 实现矩阵",
-                style = TextStyle(Color.White, 23.sp, FontWeight.SemiBold),
+                "Kyant ↔ ColorOS SystemUI Liquid Glass 全实现矩阵",
+                style = TextStyle(Color.White, 22.sp, FontWeight.SemiBold),
             )
             BasicText(
-                "逐机制运行真实实现：Kyant 一侧直接调用上游 Backdrop；ColorOS 一侧动态调用 personality-clocks、uxdesign 和 SystemUI。需要 SurfaceControl 的能力只报告存在性，不伪造普通 View 回退。",
+                "这里按实际执行机制拆分，不按外观归类。ColorOS 一侧只运行设备安装的 personality-clocks、uxdesign 与 SystemUI 代码/着色器；需要 SurfaceControl、SystemUI 业务宿主或 OpenGL 管线的实现保留真实限制。",
                 style = infoStyle(),
             )
             imageError?.let { BasicText(it, style = TextStyle(Color(0xFFFF8A80), 11.sp)) }
 
-            MatrixSummary()
+            MechanismSummary()
 
-            SectionTitle("1 · 几何 / SDF / 圆角场")
+            SectionTitle("1 · 几何场 / SDF / 平滑圆角")
             BasicText(
-                "Kyant 使用解析圆角矩形 SDF；ColorOS 锁屏玻璃使用模糊蒙版软场，SystemUI PostEffect 另外提供 G2 / FULL / CONIC 三种圆角场。下面三块 ColorOS 卡片只切换 CornerType，不把光学层混进来。",
+                "Kyant 的镜片形状由解析圆角矩形距离场提供；SystemUI PostEffect 另有 G2、FULL、CONIC 三套圆角场。下面三块只切换 ColorOS CornerParams，不打开 Optics、描边或内阴影。",
                 style = infoStyle(),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("G2", "FULL", "CONIC").forEach { type ->
-                    AndroidView(
-                        factory = { ColorOsPostEffectHostView(it) },
-                        update = { view ->
-                            view.configure(
-                                wallpaper = wallpaper,
-                                radiusPx = with(density) { 26.dp.toPx() },
-                                cornerType = type,
-                                optics = false,
-                                gradientStroke = false,
-                                innerShadow = false,
-                                onStatus = null,
-                            )
-                        },
-                        modifier = Modifier.weight(1f).height(86.dp),
-                    )
-                }
+            listOf("G2", "FULL", "CONIC").forEach { type ->
+                SampleLabel("ColorOS SystemUI · CornerType.$type")
+                AndroidView(
+                    factory = { ColorOsPostEffectHostView(it) },
+                    update = { view ->
+                        view.configure(
+                            wallpaper = wallpaper,
+                            radiusPx = with(density) { 28.dp.toPx() },
+                            cornerType = type,
+                            optics = false,
+                            gradientStroke = false,
+                            innerShadow = false,
+                            onStatus = null,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().height(78.dp),
+                )
             }
-            BasicText("左至右：G2 / FULL / CONIC", style = diagnosticsStyle())
 
             SectionTitle("2 · 折射 + 色散")
             BasicText(
-                "Kyant：解析 SDF 梯度 + circleMap 边缘曲线 + 背景坐标偏移，可选 7 路色散；ColorOS：软距离场梯度 + REFRACTION_RANGE/INTENSITY + RGB 三路壁纸偏移采样。两边参数单位不同，滑杆只做归一化视觉对照。",
+                "Kyant lens()：解析 SDF 梯度 → 镜片边缘曲线 → 背景坐标偏移，可选多路色散。ColorOS 锁屏玻璃：软距离场梯度 → 折射位移 → RGB 三路壁纸采样。两者参数单位不同，因此滑杆只比较归一化响应。",
                 style = infoStyle(),
             )
             SampleLabel("Kyant · lens()")
@@ -208,24 +222,19 @@ actual fun ColorOsNativeComparisonContent() {
             NeutralSlider("折射强度", refraction, 0f..1.6f) { refraction = it }
             NeutralSlider("色散强度", dispersion, 0f..2f) { dispersion = it }
 
-            SectionTitle("3 · 背景模糊")
-            BasicText(
-                "Kyant blur() 是标准 RenderEffect 模糊；ColorOS 通用材质使用 COUIMaterialBlurEffect，并在模糊之后叠加自己的颜色层。SystemUI 另有 ContinuousBlurDrawable，但它直接要求 SurfaceControl。",
-                style = infoStyle(),
-            )
+            SectionTitle("3 · 背景模糊 / 渐进模糊 / 材质混色")
             SampleLabel("Kyant · blur()")
             KyantBlurSample(backdrop)
             SampleLabel("ColorOS · COUIMaterialBlurEffect")
             MaterialSample(
                 sample = MaterialSampleKind.Blur,
                 status = { blurStatus = it },
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+                modifier = Modifier.fillMaxWidth().height(112.dp),
             )
             StatusText(blurStatus)
 
-            SectionTitle("4 · 渐进模糊")
             BasicText(
-                "Kyant 示例是整体模糊后再用 RuntimeShader alpha mask 渐隐；ColorOS AppBarBlurHelper 直接调用 OplusRenderEffect.createGradientBlurEffect。",
+                "渐进模糊：Kyant 示例是模糊后以 RuntimeShader alpha mask 渐隐；ColorOS AppBarBlurHelper 直接走 OplusRenderEffect.createGradientBlurEffect。",
                 style = infoStyle(),
             )
             SampleLabel("Kyant · blur + alpha mask")
@@ -235,34 +244,36 @@ actual fun ColorOsNativeComparisonContent() {
                 sample = MaterialSampleKind.GradientBlur,
                 fraction = progressiveFraction,
                 status = { progressiveStatus = it },
-                modifier = Modifier.fillMaxWidth().height(150.dp),
+                modifier = Modifier.fillMaxWidth().height(140.dp),
             )
             StatusText(progressiveStatus)
-            NeutralSlider("ColorOS 渐进模糊进度", progressiveFraction, 0f..1f) { progressiveFraction = it }
+            NeutralSlider("渐进模糊进度", progressiveFraction, 0f..1f) { progressiveFraction = it }
 
-            SectionTitle("5 · 材质混色 / 亮度与饱和度响应")
             BasicText(
-                "Kyant 暴露 brightness / contrast / saturation / vibrancy 颜色滤镜；ColorOS 的 COUIMaterialBlurEffect 把模糊与两层 BlendModeColorFilter 绑定成材质配方，锁屏玻璃则还有状态/颜色遮罩混合。这里用 vibrancy 对照 ColorOS 原生内容材质模糊配方。",
+                "混色：Kyant 暴露 vibrancy / colorControls；COUIMaterialBlurEffect 把模糊与两层 BlendModeColorFilter 绑定成材质配方。SystemUI DrawableShader 还另有 ShaderBlendParam、多重混色与前景混色。",
                 style = infoStyle(),
             )
             SampleLabel("Kyant · vibrancy()")
             KyantVibrancySample(backdrop)
-            SampleLabel("ColorOS · BlurEffect + 两层 BlendMode 材质混色")
+            SampleLabel("ColorOS · COUI BlurEffect + 双 BlendMode 层")
             MaterialSample(
                 sample = MaterialSampleKind.ColorMaterial,
                 status = { colorStatus = it },
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+                modifier = Modifier.fillMaxWidth().height(112.dp),
             )
             StatusText(colorStatus)
+            if (shaderBlendModes.isNotEmpty()) {
+                BasicText("SystemUI ShaderBlendParam 模式探针：${shaderBlendModes.joinToString()}", style = diagnosticsStyle())
+            }
 
-            SectionTitle("6 · 边缘高光 / 描边 / 内阴影")
+            SectionTitle("4 · 通用 PostEffect：Optics + 渐变描边 + 内阴影")
             BasicText(
-                "Kyant 的轮廓层由 Highlight、Shadow、InnerShadow 组合；ColorOS 有三条独立路径：锁屏 Glow/Stroke/InnerShadow、COUIMaterialStrokeEffect，以及 SystemUI Optics + GradientStrokeLine + InnerShadow。",
+                "这条是 SystemUI 的通用 DrawableShader 组合，不用 COUI 或锁屏 shader 代替。Kyant 对照项分别是 Highlight、Highlight stroke 与 InnerShadow。Optics 是边缘光学覆盖层，不等于背景折射。",
                 style = infoStyle(),
             )
             SampleLabel("Kyant · Highlight + Shadow + InnerShadow")
             KyantEdgeSample(backdrop)
-            SampleLabel("ColorOS SystemUI · G2 + Optics + GradientStroke + InnerShadow")
+            SampleLabel("ColorOS SystemUI · BlendDrawable")
             AndroidView(
                 factory = { ColorOsPostEffectHostView(it) },
                 update = { view ->
@@ -276,21 +287,64 @@ actual fun ColorOsNativeComparisonContent() {
                         onStatus = { postStatus = it },
                     )
                 },
-                modifier = Modifier.fillMaxWidth().height(150.dp),
+                modifier = Modifier.fillMaxWidth().height(145.dp),
             )
             StatusText(postStatus)
 
-            SampleLabel("ColorOS COUI · 独立 MaterialStroke")
+            SampleLabel("ColorOS COUI · MaterialStroke 独立路径")
             MaterialSample(
                 sample = MaterialSampleKind.Stroke,
                 status = { strokeStatus = it },
-                modifier = Modifier.fillMaxWidth().height(92.dp),
+                modifier = Modifier.fillMaxWidth().height(88.dp),
             )
             StatusText(strokeStatus)
 
-            SectionTitle("7 · 独立色差工具")
+            SectionTitle("5 · SystemUI 业务专用描边：QS 与音量面板")
             BasicText(
-                "Kyant 的色散集成在 lens() 内；ColorOS 锁屏玻璃同样把色散集成在折射函数中。除此之外 SystemUI 还自带 chromatic.agsl，可对任意输入做正/负方向 RGB 位移。此项只验证独立工具，不把它误称为锁屏折射。",
+                "不能因为二者都叫渐变描边就只展示通用 GradientStrokeLine。QS 有自己的 GradientStrokeShader（G2/CONIC），音量面板还有独立 VolumeGradientStrokeShader（FULL/SMOOTH）。下面分别直接实例化这两个 SystemUI RuntimeShader。",
+                style = infoStyle(),
+            )
+            SampleLabel("ColorOS QS · GradientStrokeShader")
+            AndroidView(
+                factory = { SystemUiStrokeHostView(it, SystemUiStrokeKind.QS) },
+                update = { view ->
+                    view.onStatus = { qsStrokeStatus = it }
+                    view.configure(with(density) { 34.dp.toPx() })
+                },
+                modifier = Modifier.fillMaxWidth().height(104.dp),
+            )
+            StatusText(qsStrokeStatus)
+
+            SampleLabel("ColorOS Volume · VolumeGradientStrokeShader")
+            AndroidView(
+                factory = { SystemUiStrokeHostView(it, SystemUiStrokeKind.Volume) },
+                update = { view ->
+                    view.onStatus = { volumeStrokeStatus = it }
+                    view.configure(with(density) { 34.dp.toPx() })
+                },
+                modifier = Modifier.fillMaxWidth().height(104.dp),
+            )
+            StatusText(volumeStrokeStatus)
+
+            SectionTitle("6 · SystemUI barglow.agsl：SDF 发光 + 色散")
+            BasicText(
+                "barglow 不是背景折射。它自己计算抛物线/线段距离场，以指数衰减生成发光，并在发光上做正负方向色差，再与输入纹理合成。Kyant 最接近的是 Highlight + 色散视觉子机制，但没有 1:1 的 bar-glow primitive。",
+                style = infoStyle(),
+            )
+            AndroidView(
+                factory = { ColorOsBarGlowHostView(it) },
+                update = { view ->
+                    view.onStatus = { barGlowStatus = it }
+                    view.configure(wallpaper, barGlowBend)
+                },
+                modifier = Modifier.fillMaxWidth().height(130.dp),
+            )
+            StatusText(barGlowStatus)
+            NeutralSlider("弯曲量", barGlowBend, -0.10f..0.12f) { barGlowBend = it }
+
+            SectionTitle("7 · SystemUI chromatic.agsl：独立色差工具")
+            BasicText(
+                "Kyant 的色散集成在 lens() 内；SystemUI 还额外携带可独立工作的 chromatic.agsl。这里对任意输入做中心、正偏移、负偏移三次采样，只验证色差工具，不把它误标成折射。",
                 style = infoStyle(),
             )
             AndroidView(
@@ -299,53 +353,95 @@ actual fun ColorOsNativeComparisonContent() {
                     view.onStatus = { chromaticStatus = it }
                     view.configure(wallpaper, chromaticOffset)
                 },
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+                modifier = Modifier.fillMaxWidth().height(118.dp),
             )
             StatusText(chromaticStatus)
-            NeutralSlider("SystemUI 色差偏移", chromaticOffset, 0f..18f, " px") { chromaticOffset = it }
+            NeutralSlider("色差偏移", chromaticOffset, 0f..18f, " px") { chromaticOffset = it }
 
-            SectionTitle("8 · 交互高光 / 聚光")
+            SectionTitle("8 · Metaball：几何融合模块与独立 raw shader")
             BasicText(
-                "Kyant InteractiveHighlight 使用按压位置驱动的径向 RuntimeShader；ColorOS COUISpotLightEffect 是设备原生交互聚光。",
+                "这里必须拆成两项。第一项是 DrawableShader 内置的真正 Metaball SDF 融合模块：它可借普通 BlendDrawable 单独运行；完整 MetaBallBlurDrawable 再叠加实时模糊 transport 时才要求 SurfaceControl。Kyant 当前 core 没有 1:1 Metaball primitive，只能拿 shape/SDF 架构做能力邻接对照。",
                 style = infoStyle(),
             )
+            AndroidView(
+                factory = { ColorOsMetaBallHostView(it) },
+                update = { view ->
+                    view.onStatus = { metaballStatus = it }
+                    view.configure(wallpaper, metaballPhase, with(density) { 36.dp.toPx() })
+                },
+                modifier = Modifier.fillMaxWidth().height(145.dp),
+            )
+            StatusText(metaballStatus)
+            NeutralSlider("Metaball 相位", metaballPhase, 0f..1f) { metaballPhase = it }
+
+            BasicText(
+                "第二项是 SystemUI 自带 res/raw/metaball.agsl：它是圆形范围内的旋转纹理/光照遮罩，不是上面的几何融合算法。",
+                style = infoStyle(),
+            )
+            AndroidView(
+                factory = { ColorOsRawMetaballHostView(it) },
+                update = { view ->
+                    view.onStatus = { rawMetaballStatus = it }
+                    view.configure(wallpaper, rawMetaballTime)
+                },
+                modifier = Modifier.fillMaxWidth().height(145.dp),
+            )
+            StatusText(rawMetaballStatus)
+            NeutralSlider("raw shader 时间", rawMetaballTime, 0f..20f) { rawMetaballTime = it }
+
+            SectionTitle("9 · 交互聚光 / 焦散阴影")
             SampleLabel("Kyant · InteractiveHighlight")
             KyantInteractiveSample(backdrop)
             SampleLabel("ColorOS · COUISpotLightEffect")
             MaterialSample(
                 sample = MaterialSampleKind.SpotLight,
                 status = { spotStatus = it },
-                modifier = Modifier.fillMaxWidth().height(92.dp),
+                modifier = Modifier.fillMaxWidth().height(88.dp),
             )
             StatusText(spotStatus)
 
-            SectionTitle("9 · 外阴影 / 焦散阴影")
             BasicText(
-                "Kyant core 提供通用 Shadow；ColorOS ToolbarMaterialEffectDelegate 有独立 caustic-shadow 能力，并可同时启用 blur / stroke / spotlight。它们不是同一算法，因此不做参数等价假设。",
+                "ColorOS ToolbarMaterialEffectDelegate 还维护独立 caustic-shadow 开关，并可和 blur/stroke/spotlight 同时启用。Kyant 的 Shadow 只有能力邻接关系，不能把两者当成同一算法。",
                 style = infoStyle(),
             )
             MaterialSample(
                 sample = MaterialSampleKind.ToolbarCaustic,
                 status = { causticStatus = it },
-                modifier = Modifier.fillMaxWidth().height(92.dp),
+                modifier = Modifier.fillMaxWidth().height(88.dp),
             )
             StatusText(causticStatus)
 
-            SectionTitle("10 · 形变 / Metaball / 系统级连续模糊")
+            SectionTitle("10 · SystemUI 完整实现清单 ↔ Kyant 对照")
             BasicText(
-                "当前 SystemUI 构建存在 MetaBallBlurDrawable 与 ContinuousBlurDrawable；两个构造器都直接要求 SurfaceControl。普通第三方 View 没有等价宿主，所以本 Demo 只做运行时能力诊断，不塞一个仿制 shader 伪装为 ColorOS 原生实现。",
-                style = TextStyle(Color(0xFFFFCC80), 11.sp),
+                "下面按核心后处理、SystemUI 着色器资产、公共模糊基础设施、通知、控制中心/QS、音量、壁纸、生物识别与全局面板逐项探测。DIRECT_VIEW 已在上方或可在普通 View 执行；SURFACE_CONTROL / SYSTEM_UI_HOST / GL_PIPELINE 保持原宿主约束。",
+                style = infoStyle(),
             )
-
-            SectionTitle("11 · 运行时能力与预设清单")
-            BasicText("COUI Blur (${materialCatalog.blur.size})：${materialCatalog.blur.joinToString()}", style = diagnosticsStyle())
-            BasicText("COUI Stroke (${materialCatalog.stroke.size})：${materialCatalog.stroke.joinToString()}", style = diagnosticsStyle())
-            BasicText("COUI SpotLight (${materialCatalog.spotLight.size})：${materialCatalog.spotLight.joinToString()}", style = diagnosticsStyle())
-            BasicText("Toolbar (${materialCatalog.toolbarCategories.size})：${materialCatalog.toolbarCategories.joinToString()}", style = diagnosticsStyle())
-            postCapabilities.forEach { item ->
-                val execution = if (item.runnableInOrdinaryView) "普通 View 可执行" else "系统/SurfaceControl 专属或仅诊断"
-                BasicText("• ${item.name} — ${item.status} — $execution", style = diagnosticsStyle())
+            systemUiCatalog.groupBy { it.group }.forEach { (group, entries) ->
+                BasicText(group, style = TextStyle(Color.White, 14.sp, FontWeight.SemiBold))
+                entries.forEach { item ->
+                    val available = item.status.startsWith("available")
+                    val statusColor = if (available) Color(0xFF9DE7AA) else Color(0xFFFFB4A9)
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(alpha = 0.20f))
+                            .padding(9.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        BasicText(item.systemUiImplementation, style = TextStyle(Color.White, 10.sp, FontWeight.Medium))
+                        BasicText("↔ Kyant：${item.kyantCounterpart}", style = diagnosticsStyle())
+                        BasicText("${item.executionMode} · ${item.status}", style = TextStyle(statusColor, 9.sp))
+                        BasicText(item.note, style = diagnosticsStyle())
+                    }
+                }
             }
+
+            SectionTitle("11 · COUI 原生预设目录")
+            BasicText("Blur (${materialCatalog.blur.size})：${materialCatalog.blur.joinToString()}", style = diagnosticsStyle())
+            BasicText("Stroke (${materialCatalog.stroke.size})：${materialCatalog.stroke.joinToString()}", style = diagnosticsStyle())
+            BasicText("SpotLight (${materialCatalog.spotLight.size})：${materialCatalog.spotLight.joinToString()}", style = diagnosticsStyle())
+            BasicText("Toolbar (${materialCatalog.toolbarCategories.size})：${materialCatalog.toolbarCategories.joinToString()}", style = diagnosticsStyle())
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PlainButton("选择背景") {
@@ -356,6 +452,9 @@ actual fun ColorOsNativeComparisonContent() {
                     dispersion = 1f
                     progressiveFraction = 1f
                     chromaticOffset = 5f
+                    metaballPhase = 0.5f
+                    barGlowBend = 0.055f
+                    rawMetaballTime = 1f
                 }
             }
             Spacer(Modifier.height(28.dp))
@@ -364,18 +463,16 @@ actual fun ColorOsNativeComparisonContent() {
 }
 
 @Composable
-private fun MatrixSummary() {
+private fun MechanismSummary() {
     val lines = listOf(
-        "几何/SDF：解析 rounded-rect ↔ 锁屏软场 + SystemUI G2/FULL/CONIC",
-        "模糊：Kyant BlurEffect ↔ COUI MaterialBlur / GradientBlur / ContinuousBlur",
-        "折射：Kyant lens() ↔ keyguard GlassEffectBuilder",
-        "色散：Kyant 7 路 ↔ keyguard RGB 三路 + SystemUI chromatic.agsl",
-        "混色：Kyant ColorFilter/Vibrancy ↔ COUI 双 BlendMode 层 + keyguard 状态配方",
-        "高光：Kyant Highlight ↔ keyguard Glow + SystemUI Optics + COUI SpotLight",
-        "描边：Kyant Highlight stroke ↔ COUI MaterialStroke + GradientStrokeLine",
-        "内阴影：Kyant InnerShadow ↔ keyguard / SystemUI InnerShadow",
-        "焦散：Kyant 通用 Shadow ↔ ColorOS caustic shadow（能力相邻但算法不等价）",
-        "形变：Kyant shape system ↔ ColorOS MetaBallBlurDrawable（SurfaceControl 专属）",
+        "背景取样：Kyant LayerBackdrop ↔ SystemUI 截图/平台/壁纸/SurfaceControl 多后端",
+        "模糊：Kyant blur ↔ COUI blur / AppBar gradient blur / SystemUI GL + continuous blur",
+        "折射：Kyant lens ↔ keyguard GlassEffectBuilder（SystemUI PostEffect Optics 不是折射）",
+        "色散：Kyant lens 色散 ↔ keyguard RGB 折射色散 + SystemUI chromatic/barglow 色差",
+        "形状：Kyant RoundedRectangle SDF ↔ PostEffect G2/FULL/CONIC + Metaball SDF",
+        "轮廓：Kyant Highlight/InnerShadow ↔ COUI stroke + PostEffect optics/stroke/shadow + QS/Volume 专用 shader",
+        "交互：Kyant InteractiveHighlight ↔ COUI/SystemUI Spotlight hosts",
+        "无 1:1：Kyant core 当前没有 Metaball fusion、caustic-shadow 或 barglow primitive",
     )
     Column(
         Modifier
@@ -385,7 +482,7 @@ private fun MatrixSummary() {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        BasicText("实现对应关系", style = TextStyle(Color.White, 16.sp, FontWeight.SemiBold))
+        BasicText("机制覆盖", style = TextStyle(Color.White, 15.sp, FontWeight.SemiBold))
         lines.forEach { BasicText(it, style = diagnosticsStyle()) }
     }
 }
@@ -395,7 +492,7 @@ private fun KyantLensSample(backdrop: Backdrop, refraction: Float, dispersion: B
     Box(
         Modifier
             .fillMaxWidth()
-            .height(150.dp)
+            .height(145.dp)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedRectangle(38.dp) },
@@ -425,7 +522,7 @@ private fun KyantBlurSample(backdrop: Backdrop) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(120.dp)
+            .height(112.dp)
             .drawPlainBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedRectangle(32.dp) },
@@ -443,7 +540,7 @@ private fun KyantVibrancySample(backdrop: Backdrop) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(120.dp)
+            .height(112.dp)
             .drawPlainBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedRectangle(32.dp) },
@@ -464,7 +561,7 @@ private fun KyantProgressiveSample(backdrop: Backdrop) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(150.dp)
+            .height(140.dp)
             .drawPlainBackdrop(
                 backdrop = backdrop,
                 shape = { androidx.compose.ui.graphics.RectangleShape },
@@ -478,9 +575,8 @@ uniform float2 size;
 layout(color) uniform half4 tint;
 uniform float tintIntensity;
 half4 main(float2 coord) {
-    float blurAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
-    float tintAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
-    return mix(content.eval(coord) * blurAlpha, tint * tintAlpha, tintIntensity);
+    float a = smoothstep(size.y, size.y * 0.5, coord.y);
+    return mix(content.eval(coord) * a, tint * a, tintIntensity);
 }
 """,
                         "content",
@@ -502,7 +598,7 @@ private fun KyantEdgeSample(backdrop: Backdrop) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(150.dp)
+            .height(145.dp)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedRectangle(38.dp) },
@@ -525,7 +621,7 @@ private fun KyantInteractiveSample(backdrop: Backdrop) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(92.dp)
+            .height(88.dp)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedRectangle(28.dp) },
@@ -581,13 +677,7 @@ private class ColorOsMaterialHostView(context: Context) : View(context) {
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(
-                    0,
-                    0,
-                    view.width.coerceAtLeast(1),
-                    view.height.coerceAtLeast(1),
-                    28f * resources.displayMetrics.density,
-                )
+                outline.setRoundRect(0, 0, view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), 28f * resources.displayMetrics.density)
             }
         }
     }
@@ -639,12 +729,12 @@ private class ColorOsMaterialHostView(context: Context) : View(context) {
                 forceEnable = true,
             )
         }
-        result
-            .onSuccess { onStatus?.invoke("PASS — $mode") }
-            .onFailure {
-                appliedKey = null
-                onStatus?.invoke("UNAVAILABLE — $mode: ${describe(it)}")
-            }
+        result.onSuccess {
+            onStatus?.invoke("PASS — $mode")
+        }.onFailure {
+            appliedKey = null
+            onStatus?.invoke("UNAVAILABLE — $mode: ${describe(it)}")
+        }
     }
 }
 
@@ -666,8 +756,7 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
             updatePosted = true
             postOnAnimation {
                 updatePosted = false
-                bridge.updateGeometry(this)
-                    .onFailure { onStatus?.invoke("UNAVAILABLE — geometry: ${describe(it)}") }
+                bridge.updateGeometry(this).onFailure { onStatus?.invoke("UNAVAILABLE — geometry: ${describe(it)}") }
             }
         }
     }
@@ -683,11 +772,11 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
     }
 
     fun configure(wallpaper: Bitmap, params: TunableGlassParams, radiusPx: Float) {
-        val wallpaperChanged = this.wallpaper !== wallpaper
+        val changed = this.wallpaper !== wallpaper
         this.wallpaper = wallpaper
         this.params = params
         this.radiusPx = radiusPx
-        if (wallpaperChanged) attachedWallpaperId = 0
+        if (changed) attachedWallpaperId = 0
         invalidateOutline()
         invalidate()
         postOnAnimation { applyIfReady() }
@@ -709,9 +798,10 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val color = markerColor ?: return
-        paint.color = color
-        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radiusPx, radiusPx, paint)
+        markerColor?.let {
+            paint.color = it
+            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radiusPx, radiusPx, paint)
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -735,12 +825,12 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
         } else {
             bridge.update(this, params).map { "live uniforms updated" }
         }
-        result
-            .onSuccess { onStatus?.invoke("PASS — ColorOS keyguard glass: $it") }
-            .onFailure {
-                attachedWallpaperId = 0
-                onStatus?.invoke("UNAVAILABLE — ColorOS keyguard glass: ${describe(it)}")
-            }
+        result.onSuccess {
+            onStatus?.invoke("PASS — ColorOS keyguard glass: $it")
+        }.onFailure {
+            attachedWallpaperId = 0
+            onStatus?.invoke("UNAVAILABLE — ColorOS keyguard glass: ${describe(it)}")
+        }
     }
 }
 
@@ -755,12 +845,9 @@ private class ColorOsPostEffectHostView(context: Context) : View(context) {
     private var statusSink: ((String) -> Unit)? = null
     private var lastKey: String? = null
     private var updatePosted = false
-
     private val scrollListener = ViewTreeObserver.OnScrollChangedListener { scheduleApply() }
 
-    init {
-        setLayerType(LAYER_TYPE_HARDWARE, null)
-    }
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
 
     fun configure(
         wallpaper: Bitmap,
@@ -833,11 +920,143 @@ private class ColorOsPostEffectHostView(context: Context) : View(context) {
             ).getOrThrow()
             invalidate()
         }.onSuccess {
-            statusSink?.invoke("PASS — SystemUI BlendDrawable: $cornerType / optics=$optics / stroke=$gradientStroke / innerShadow=$innerShadow")
+            statusSink?.invoke("PASS — BlendDrawable $cornerType / optics=$optics / stroke=$gradientStroke / innerShadow=$innerShadow")
         }.onFailure {
             lastKey = null
             foreground = null
             statusSink?.invoke("UNAVAILABLE — SystemUI PostEffect: ${describe(it)}")
+        }
+    }
+}
+
+private enum class SystemUiStrokeKind { QS, Volume }
+
+private class SystemUiStrokeHostView(context: Context, private val kind: SystemUiStrokeKind) : View(context) {
+    private val bridge = ColorOsSystemUiExecutableBridge(context)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x24FFFFFF }
+    private var radiusPx = 0f
+    private var shader: RuntimeShader? = null
+    private var lastKey: String? = null
+    var onStatus: ((String) -> Unit)? = null
+
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+
+    fun configure(radiusPx: Float) {
+        this.radiusPx = radiusPx
+        applyIfReady()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        lastKey = null
+        applyIfReady()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radiusPx, radiusPx, basePaint)
+        shader?.let {
+            paint.shader = it
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+            paint.shader = null
+        }
+    }
+
+    private fun applyIfReady() {
+        if (width <= 0 || height <= 0) return
+        val key = "$kind:$width:$height:$radiusPx"
+        if (key == lastKey) return
+        lastKey = key
+        val result = when (kind) {
+            SystemUiStrokeKind.QS -> bridge.createQsStrokeShader(width, height, radiusPx)
+            SystemUiStrokeKind.Volume -> bridge.createVolumeStrokeShader(width, height, radiusPx)
+        }
+        result.onSuccess {
+            shader = it
+            invalidate()
+            onStatus?.invoke("PASS — $kind shipping RuntimeShader")
+        }.onFailure {
+            shader = null
+            lastKey = null
+            onStatus?.invoke("UNAVAILABLE — $kind stroke: ${describe(it)}")
+        }
+    }
+}
+
+private class ColorOsBarGlowHostView(context: Context) : View(context) {
+    private val postBridge = ColorOsSystemUiPostEffectBridge(context)
+    private val bridge = ColorOsSystemUiExecutableBridge(context)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private var wallpaper: Bitmap? = null
+    private var crop: Bitmap? = null
+    private var bend = 0.055f
+    private var lastKey: String? = null
+    private var updatePosted = false
+    var onStatus: ((String) -> Unit)? = null
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener { scheduleApply() }
+
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+
+    fun configure(wallpaper: Bitmap, bend: Float) {
+        this.wallpaper = wallpaper
+        this.bend = bend
+        scheduleApply()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
+        scheduleApply()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        lastKey = null
+        scheduleApply()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        crop?.let { canvas.drawBitmap(it, null, Rect(0, 0, width, height), paint) }
+    }
+
+    override fun onDetachedFromWindow() {
+        bridge.clear(this)
+        crop?.recycle()
+        crop = null
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnScrollChangedListener(scrollListener)
+        super.onDetachedFromWindow()
+    }
+
+    private fun scheduleApply() {
+        if (updatePosted) return
+        updatePosted = true
+        postOnAnimation {
+            updatePosted = false
+            applyIfReady()
+        }
+    }
+
+    private fun applyIfReady() {
+        val bg = wallpaper ?: return
+        if (!isAttachedToWindow || width <= 0 || height <= 0) return
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val key = "${System.identityHashCode(bg)}:$width:$height:${loc[0]}:${loc[1]}:$bend"
+        if (key == lastKey) return
+        lastKey = key
+        runCatching {
+            crop?.recycle()
+            crop = postBridge.cropWallpaperForView(bg, this)
+            invalidate()
+            bridge.applyBarGlow(this, bend = bend).getOrThrow()
+        }.onSuccess {
+            onStatus?.invoke("PASS — SystemUI assets/barglow.agsl")
+        }.onFailure {
+            lastKey = null
+            bridge.clear(this)
+            onStatus?.invoke("UNAVAILABLE — barglow: ${describe(it)}")
         }
     }
 }
@@ -851,7 +1070,6 @@ private class ColorOsChromaticHostView(context: Context) : View(context) {
     private var lastKey: String? = null
     private var updatePosted = false
     var onStatus: ((String) -> Unit)? = null
-
     private val scrollListener = ViewTreeObserver.OnScrollChangedListener { scheduleApply() }
 
     init {
@@ -859,13 +1077,7 @@ private class ColorOsChromaticHostView(context: Context) : View(context) {
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(
-                    0,
-                    0,
-                    view.width.coerceAtLeast(1),
-                    view.height.coerceAtLeast(1),
-                    28f * resources.displayMetrics.density,
-                )
+                outline.setRoundRect(0, 0, view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), 28f * resources.displayMetrics.density)
             }
         }
     }
@@ -914,9 +1126,9 @@ private class ColorOsChromaticHostView(context: Context) : View(context) {
     private fun applyIfReady() {
         val bg = wallpaper ?: return
         if (!isAttachedToWindow || width <= 0 || height <= 0) return
-        val location = IntArray(2)
-        getLocationOnScreen(location)
-        val key = "${System.identityHashCode(bg)}:$width:$height:${location[0]}:${location[1]}:$offsetPx"
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val key = "${System.identityHashCode(bg)}:$width:$height:${loc[0]}:${loc[1]}:$offsetPx"
         if (key == lastKey) return
         lastKey = key
         runCatching {
@@ -929,7 +1141,158 @@ private class ColorOsChromaticHostView(context: Context) : View(context) {
         }.onFailure {
             lastKey = null
             bridge.clear(this)
-            onStatus?.invoke("UNAVAILABLE — SystemUI chromatic: ${describe(it)}")
+            onStatus?.invoke("UNAVAILABLE — chromatic: ${describe(it)}")
+        }
+    }
+}
+
+private class ColorOsMetaBallHostView(context: Context) : View(context) {
+    private val postBridge = ColorOsSystemUiPostEffectBridge(context)
+    private val bridge = ColorOsSystemUiExecutableBridge(context)
+    private var wallpaper: Bitmap? = null
+    private var phase = 0.5f
+    private var radiusPx = 0f
+    private var lastKey: String? = null
+    private var updatePosted = false
+    var onStatus: ((String) -> Unit)? = null
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener { scheduleApply() }
+
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+
+    fun configure(wallpaper: Bitmap, phase: Float, radiusPx: Float) {
+        this.wallpaper = wallpaper
+        this.phase = phase
+        this.radiusPx = radiusPx
+        scheduleApply()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
+        scheduleApply()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        lastKey = null
+        scheduleApply()
+    }
+
+    override fun onDetachedFromWindow() {
+        bridge.clear(this)
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnScrollChangedListener(scrollListener)
+        super.onDetachedFromWindow()
+    }
+
+    private fun scheduleApply() {
+        if (updatePosted) return
+        updatePosted = true
+        postOnAnimation {
+            updatePosted = false
+            applyIfReady()
+        }
+    }
+
+    private fun applyIfReady() {
+        val bg = wallpaper ?: return
+        if (!isAttachedToWindow || width <= 0 || height <= 0) return
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val key = "${System.identityHashCode(bg)}:$width:$height:${loc[0]}:${loc[1]}:$phase:$radiusPx"
+        if (key == lastKey) return
+        lastKey = key
+        runCatching {
+            val crop = postBridge.cropWallpaperForView(bg, this)
+            foreground = bridge.createMetaBallPostEffectDrawable(crop, width, height, radiusPx, phase).getOrThrow()
+            invalidate()
+        }.onSuccess {
+            onStatus?.invoke("PASS — DrawableShader MetaBall AGSL on BlendDrawable")
+        }.onFailure {
+            lastKey = null
+            foreground = null
+            onStatus?.invoke("UNAVAILABLE — Metaball module: ${describe(it)}")
+        }
+    }
+}
+
+private class ColorOsRawMetaballHostView(context: Context) : View(context) {
+    private val postBridge = ColorOsSystemUiPostEffectBridge(context)
+    private val bridge = ColorOsSystemUiExecutableBridge(context)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var wallpaper: Bitmap? = null
+    private var time = 0f
+    private var crop: Bitmap? = null
+    private var shader: RuntimeShader? = null
+    private var lastKey: String? = null
+    private var updatePosted = false
+    var onStatus: ((String) -> Unit)? = null
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener { scheduleApply() }
+
+    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+
+    fun configure(wallpaper: Bitmap, time: Float) {
+        this.wallpaper = wallpaper
+        this.time = time
+        scheduleApply()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
+        scheduleApply()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        lastKey = null
+        scheduleApply()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        shader?.let {
+            paint.shader = it
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+            paint.shader = null
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        crop?.recycle()
+        crop = null
+        shader = null
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnScrollChangedListener(scrollListener)
+        super.onDetachedFromWindow()
+    }
+
+    private fun scheduleApply() {
+        if (updatePosted) return
+        updatePosted = true
+        postOnAnimation {
+            updatePosted = false
+            applyIfReady()
+        }
+    }
+
+    private fun applyIfReady() {
+        val bg = wallpaper ?: return
+        if (!isAttachedToWindow || width <= 0 || height <= 0) return
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val key = "${System.identityHashCode(bg)}:$width:$height:${loc[0]}:${loc[1]}:$time"
+        if (key == lastKey) return
+        lastKey = key
+        runCatching {
+            crop?.recycle()
+            crop = postBridge.cropWallpaperForView(bg, this)
+            shader = bridge.createRawMetaballShader(crop!!, width, height, time).getOrThrow()
+            invalidate()
+        }.onSuccess {
+            onStatus?.invoke("PASS — SystemUI res/raw/metaball.agsl")
+        }.onFailure {
+            lastKey = null
+            shader = null
+            onStatus?.invoke("UNAVAILABLE — raw metaball: ${describe(it)}")
         }
     }
 }
@@ -966,10 +1329,7 @@ private fun NeutralSlider(
     val span = (range.endInclusive - range.start).takeIf { it > 0f } ?: 1f
     val normalized = ((value - range.start) / span).coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth()) {
-        BasicText(
-            "$label ${value.round2()}$suffix",
-            style = TextStyle(Color.White.copy(alpha = 0.84f), 12.sp),
-        )
+        BasicText("$label ${value.round2()}$suffix", style = TextStyle(Color.White.copy(alpha = 0.84f), 12.sp))
         AndroidView(
             factory = { SeekBar(it).apply { max = 1000 } },
             update = { seek ->
@@ -979,7 +1339,6 @@ private fun NeutralSlider(
                     override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                         if (fromUser) onValueChange(range.start + span * (progress / 1000f))
                     }
-
                     override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
                     override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
                 })
@@ -1038,7 +1397,6 @@ private fun createTestWallpaper(context: Context): Bitmap {
     canvas.drawCircle(bitmap.width * 0.78f, bitmap.height * 0.48f, bitmap.width * 0.18f, paint)
     paint.color = AndroidColor.rgb(54, 238, 201)
     canvas.drawCircle(bitmap.width * 0.38f, bitmap.height * 0.78f, bitmap.width * 0.16f, paint)
-
     paint.color = 0xAAFFFFFF.toInt()
     paint.strokeWidth = 2f
     val step = (bitmap.width / 18f).coerceAtLeast(24f)
