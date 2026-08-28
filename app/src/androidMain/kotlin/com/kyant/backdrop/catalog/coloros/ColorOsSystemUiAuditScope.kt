@@ -5,6 +5,9 @@ package com.kyant.backdrop.catalog.coloros
  * and merely adjacent graphics infrastructure. The exhaustive catalog deliberately over-scans;
  * this classifier prevents generic ripple/shadow/animation classes from inflating or failing the
  * material coverage gate.
+ *
+ * CORE_MATERIAL coverage is intentionally stricter than a textual mapping: every core row must
+ * also resolve to a ColorOsKyantParityContract made from concrete Kyant primitives.
  */
 internal object ColorOsSystemUiAuditScope {
     enum class Scope { CORE_MATERIAL, ADJACENT_GRAPHICS }
@@ -24,20 +27,28 @@ internal object ColorOsSystemUiAuditScope {
         val adjacent: Int,
         val coreMapped: Int,
         val coreUnmapped: Int,
+        val coreContracted: Int,
+        val coreContractMissing: Int,
         val coreAvailable: Int,
         val coreDirect: Int,
         val coreHostBound: Int,
+        val parityMechanism: Int,
+        val parityComposite: Int,
+        val parityNearestOnly: Int,
+        val parityHostLifecycle: Int,
         val adjacentMapped: Int,
+        val missingContracts: List<String>,
     ) {
-        val coreComplete: Boolean get() = coreUnmapped == 0
+        val coreComplete: Boolean get() = coreUnmapped == 0 && coreContractMissing == 0
         val coreCoveragePercent: Float
-            get() = if (core == 0) 100f else coreMapped * 100f / core
+            get() = if (core == 0) 100f else minOf(coreMapped, coreContracted) * 100f / core
     }
 
     data class Classified(
         val mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
         val scope: Scope,
         val reason: String,
+        val parityContract: ColorOsKyantParityContract.Contract?,
     )
 
     fun classify(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Classified {
@@ -73,12 +84,17 @@ internal object ColorOsSystemUiAuditScope {
         }
 
         return if (coreReason != null) {
-            Classified(mapping, Scope.CORE_MATERIAL, coreReason)
+            Classified(
+                mapping = mapping,
+                scope = Scope.CORE_MATERIAL,
+                reason = coreReason,
+                parityContract = ColorOsKyantParityContract.resolve(mapping),
+            )
         } else {
             Classified(
-                mapping,
-                Scope.ADJACENT_GRAPHICS,
-                when {
+                mapping = mapping,
+                scope = Scope.ADJACENT_GRAPHICS,
+                reason = when {
                     impl.startsWith("com.android.systemui.") -> "AOSP/SystemUI 相邻图形或动画设施"
                     "ripple" in lower -> "ripple 相邻图形效果"
                     "shadow" in lower -> "通用 shadow，相邻但未证明属于 ColorOS 材质管线"
@@ -86,6 +102,7 @@ internal object ColorOsSystemUiAuditScope {
                     "shader" in lower -> "通用 shader，相邻能力"
                     else -> "高召回扫描命中，但缺少 ColorOS 材质调用链证据"
                 },
+                parityContract = null,
             )
         }
     }
@@ -107,14 +124,18 @@ internal object ColorOsSystemUiAuditScope {
         val classified = classifyAll(rows)
         val core = classified.filter { it.scope == Scope.CORE_MATERIAL }
         val adjacent = classified.filter { it.scope == Scope.ADJACENT_GRAPHICS }
-        val coreMapped = core.count { isMapped(it.mapping) }
-        val adjacentMapped = adjacent.count { isMapped(it.mapping) }
+        val coreMapped = core.count { isTextMapped(it.mapping) }
+        val contracted = core.filter { it.parityContract != null }
+        val missingContracts = core.filter { it.parityContract == null }
+        val adjacentMapped = adjacent.count { isTextMapped(it.mapping) }
         return ScopedSummary(
             total = classified.size,
             core = core.size,
             adjacent = adjacent.size,
             coreMapped = coreMapped,
             coreUnmapped = core.size - coreMapped,
+            coreContracted = contracted.size,
+            coreContractMissing = missingContracts.size,
             coreAvailable = core.count { it.mapping.status.startsWith("available") },
             coreDirect = core.count {
                 val mode = effectiveExecution(it.mapping)
@@ -126,11 +147,16 @@ internal object ColorOsSystemUiAuditScope {
                 mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST ||
                     mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL
             },
+            parityMechanism = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.MECHANISM },
+            parityComposite = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.COMPOSITE },
+            parityNearestOnly = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.NEAREST_ONLY },
+            parityHostLifecycle = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.HOST_LIFECYCLE },
             adjacentMapped = adjacentMapped,
+            missingContracts = missingContracts.map { it.mapping.systemUiImplementation },
         )
     }
 
-    private fun isMapped(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Boolean =
+    private fun isTextMapped(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Boolean =
         mapping.kyantCounterpart.isNotBlank() &&
             !mapping.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
 
