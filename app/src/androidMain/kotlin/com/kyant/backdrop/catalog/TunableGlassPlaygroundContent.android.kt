@@ -1,0 +1,441 @@
+package com.kyant.backdrop.catalog
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
+import android.graphics.LinearGradient
+import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Shader
+import android.view.View
+import android.view.ViewOutlineProvider
+import android.view.ViewTreeObserver
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.kyant.backdrop.catalog.coloros.ColorOsTunableGlassBridge
+import com.kyant.backdrop.catalog.coloros.TunableColor4
+import com.kyant.backdrop.catalog.coloros.TunableGlassParams
+import kotlin.math.roundToInt
+
+@Composable
+actual fun TunableGlassPlaygroundContent(
+    destination: CatalogDestination,
+): Boolean {
+    if (destination != CatalogDestination.GlassPlayground) return false
+    ColorOsTunableGlassPlayground()
+    return true
+}
+
+@Composable
+private fun ColorOsTunableGlassPlayground() {
+    val context = LocalContext.current
+    var wallpaper by remember(context) { mutableStateOf(createTuningWallpaper(context)) }
+    var params by remember { mutableStateOf(TunableGlassParams()) }
+    var cornerRadius by remember { mutableFloatStateOf(42f) }
+    var status by remember { mutableStateOf("Waiting for ColorOS tunable shader…") }
+    var imageError by remember { mutableStateOf<String?>(null) }
+    var showColorRecipes by remember { mutableStateOf(false) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    ?: error("Bitmap decode returned null")
+            }.onSuccess {
+                wallpaper = normalizeTuningWallpaper(context, it)
+                imageError = null
+            }.onFailure {
+                imageError = "Image load failed: ${it.javaClass.simpleName}: ${it.message}"
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painter = BitmapPainter(wallpaper.asImageBitmap()),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+        )
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("ColorOS Liquid Glass · 实时调试", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(
+                "从设备已安装的 personality-clocks APK 动态提取当前固件 AGSL；仓库不内置 OPPO shader。拖动参数会直接更新 RuntimeShader，模糊半径变化只重建多输入 RenderEffect。",
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.78f),
+            )
+
+            val density = LocalDensity.current
+            val radiusPx = with(density) { cornerRadius.dp.toPx() }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(210.dp)
+                    .clip(RoundedCornerShape(24.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                AndroidView(
+                    factory = { TunableGlassPreviewView(it) },
+                    update = { view ->
+                        view.onStatus = { status = it }
+                        view.configure(wallpaper, params, radiusPx)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Text("ColorOS", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            Text(status, color = if (status.startsWith("PASS")) Color(0xFF8EE6A2) else Color(0xFFFFCC80), fontSize = 11.sp)
+            imageError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 11.sp) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { params = TunableGlassParams(); cornerRadius = 42f }) { Text("恢复系统默认") }
+                Button(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("选择背景") }
+            }
+
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ParameterSection("全局 / 调试")
+                ParamSlider("玻璃混合 u_RefractMix", params.glassMix, 0f..1f) { params = params.copy(glassMix = it) }
+                ParamSlider("整体透明度 u_Alpha", params.alpha, 0f..1f) { params = params.copy(alpha = it) }
+                ParamSlider("状态混合 u_StateMix", params.stateMix, 0f..1f) { params = params.copy(stateMix = it) }
+                ParamSlider("颜色遮罩进度", params.maskColorProgress, 0f..1f) { params = params.copy(maskColorProgress = it) }
+                ParamSlider("动画混合 u_AnimMix", params.animMix, 0f..1f) { params = params.copy(animMix = it) }
+                ParamSlider("冒号状态 u_HasColonMix", params.hasColonMix, 0f..1f) { params = params.copy(hasColonMix = it) }
+                ParamSlider("预览圆角（Demo 几何）", cornerRadius, 0f..105f, suffix = " dp") { cornerRadius = it }
+                BoolControl("方向边缘光开关", params.effectLightEnabled) { params = params.copy(effectLightEnabled = it) }
+                BoolControl("显示软距离场 u_ShowSDF", params.showSdf) { params = params.copy(showSdf = it) }
+                BoolControl("仅显示原始 View u_OnlyViewContext", params.onlyViewContext) { params = params.copy(onlyViewContext = it) }
+
+                ParameterSection("软距离场 / 模糊")
+                Text("这里控制 u_BlurClockTex。系统优化版默认是 10 × 10 px；改变它会实时重建同一个 ColorOS 多输入 RenderEffect。", color = Color.White.copy(alpha = 0.68f), fontSize = 11.sp)
+                ParamSlider("SDF 模糊半径 X", params.blurRadiusX, 0f..40f, suffix = " px") { params = params.copy(blurRadiusX = it) }
+                ParamSlider("SDF 模糊半径 Y", params.blurRadiusY, 0f..40f, suffix = " px") { params = params.copy(blurRadiusY = it) }
+
+                ParameterSection("折射 / 色散")
+                ParamSlider("折射强度比例", params.refractionIntensityScale, 0f..1.25f) { params = params.copy(refractionIntensityScale = it) }
+                ParamSlider("折射范围 X（边缘半径）", params.refractionRangeX, 0.01f..1.5f) { params = params.copy(refractionRangeX = it) }
+                ParamSlider("折射范围 Y（边缘半径）", params.refractionRangeY, 0.01f..1.5f) { params = params.copy(refractionRangeY = it) }
+                ParamSlider("RGB 色散强度比例", params.dispersionIntensityScale, 0f..0.60f) { params = params.copy(dispersionIntensityScale = it) }
+                ParamSlider("梯度钳位", params.maxGradient, 0.005f..0.10f, decimals = 3) { params = params.copy(maxGradient = it) }
+
+                ParameterSection("边缘方向光")
+                ParamSlider("Glow Power", params.glowPower, 0.01f..8f) { params = params.copy(glowPower = it) }
+                ParamSlider("方向缩放 X", params.glowDirScaleX, 0.1f..4f) { params = params.copy(glowDirScaleX = it) }
+                ParamSlider("方向缩放 Y", params.glowDirScaleY, 0.1f..4f) { params = params.copy(glowDirScaleY = it) }
+                ParamSlider("Glow Offset X", params.glowOffsetX, -20f..20f, suffix = " px") { params = params.copy(glowOffsetX = it) }
+                ParamSlider("Glow Offset Y", params.glowOffsetY, -20f..20f, suffix = " px") { params = params.copy(glowOffsetY = it) }
+                ParamSlider("Glow Exposure", params.glowExposure, -1f..2f) { params = params.copy(glowExposure = it) }
+                ParamSlider("光线方向 X", params.glowLightDirX, -8f..8f) { params = params.copy(glowLightDirX = it) }
+                ParamSlider("光线方向 Y", params.glowLightDirY, -8f..8f) { params = params.copy(glowLightDirY = it) }
+                ParamSlider("光线聚焦", params.glowLightFocus, 0.1f..16f) { params = params.copy(glowLightFocus = it) }
+                ParamSlider("Glow 强度 Mode 0", params.glowIntensityMode0, 0f..2f) { params = params.copy(glowIntensityMode0 = it) }
+                ParamSlider("Glow 强度 Mode 1", params.glowIntensityMode1, 0f..2f) { params = params.copy(glowIntensityMode1 = it) }
+                ColorEditor("Glow Color", params.glowColor) { params = params.copy(glowColor = it) }
+
+                ParameterSection("描边")
+                ParamSlider("Stroke Power", params.strokePower, 0.01f..10f) { params = params.copy(strokePower = it) }
+                ParamSlider("方向缩放 X", params.strokeDirScaleX, 0.1f..4f) { params = params.copy(strokeDirScaleX = it) }
+                ParamSlider("方向缩放 Y", params.strokeDirScaleY, 0.1f..4f) { params = params.copy(strokeDirScaleY = it) }
+                ParamSlider("Stroke Exposure", params.strokeExposure, -1f..2f) { params = params.copy(strokeExposure = it) }
+                ParamSlider("Stroke Intensity", params.strokeIntensity, 0f..2f) { params = params.copy(strokeIntensity = it) }
+
+                ParameterSection("内阴影")
+                ParamSlider("Shadow Offset X", params.shadowOffsetX, -2f..2f) { params = params.copy(shadowOffsetX = it) }
+                ParamSlider("Shadow Offset Y", params.shadowOffsetY, -2f..2f) { params = params.copy(shadowOffsetY = it) }
+                ParamSlider("Shadow Distance", params.shadowDistance, -0.5f..2f) { params = params.copy(shadowDistance = it) }
+                ParamSlider("Shadow Softness", params.shadowSoftness, 0.001f..2f, decimals = 3) { params = params.copy(shadowSoftness = it) }
+                ColorEditor("Inner Shadow Color", params.innerShadowColor) { params = params.copy(innerShadowColor = it) }
+
+                ParameterSection("噪点")
+                ParamSlider("Noise Density", params.noiseDensity, 0f..1f) { params = params.copy(noiseDensity = it) }
+                ParamSlider("Noise Scale", params.noiseScale, 0f..4f) { params = params.copy(noiseScale = it) }
+
+                ParameterSection("材质混色配方（高级）")
+                BoolControl("展开所有系统配色常量", showColorRecipes) { showColorRecipes = it }
+                if (showColorRecipes) {
+                    Text("这些值在当前优化版 AGSL 中本来是 const；调试页只在内存中把它们改成 uniform。", color = Color.White.copy(alpha = 0.68f), fontSize = 11.sp)
+                    ColorEditor("ONE_PLUS_TOP", params.onePlusTop) { params = params.copy(onePlusTop = it) }
+                    ColorEditor("ONE_PLUS_MIDDLE", params.onePlusMiddle) { params = params.copy(onePlusMiddle = it) }
+                    ColorEditor("ONE_PLUS_BOT", params.onePlusBottom) { params = params.copy(onePlusBottom = it) }
+                    ColorEditor("NO_COLON_LIGHT_TOP", params.noColonLightTop) { params = params.copy(noColonLightTop = it) }
+                    ColorEditor("NO_COLON_LIGHT_BOT", params.noColonLightBottom) { params = params.copy(noColonLightBottom = it) }
+                    ColorEditor("NO_COLON_LIGHT_BOT_ALT", params.noColonLightBottomAlt) { params = params.copy(noColonLightBottomAlt = it) }
+                    ColorEditor("NO_COLON_DARK_TOP", params.noColonDarkTop) { params = params.copy(noColonDarkTop = it) }
+                    ColorEditor("NO_COLON_DARK_MIDDLE", params.noColonDarkMiddle) { params = params.copy(noColonDarkMiddle = it) }
+                    ColorEditor("NO_COLON_DARK_MIDDLE_ALT", params.noColonDarkMiddleAlt) { params = params.copy(noColonDarkMiddleAlt = it) }
+                    ColorEditor("NO_COLON_DARK_BOT", params.noColonDarkBottom) { params = params.copy(noColonDarkBottom = it) }
+                    ColorEditor("HAS_COLON_LIGHT_TOP", params.hasColonLightTop) { params = params.copy(hasColonLightTop = it) }
+                    ColorEditor("HAS_COLON_LIGHT_BOT", params.hasColonLightBottom) { params = params.copy(hasColonLightBottom = it) }
+                    ColorEditor("HAS_COLON_DARK_TOP", params.hasColonDarkTop) { params = params.copy(hasColonDarkTop = it) }
+                    ColorEditor("HAS_COLON_DARK_MIDDLE", params.hasColonDarkMiddle) { params = params.copy(hasColonDarkMiddle = it) }
+                    ColorEditor("HAS_COLON_DARK_BOT", params.hasColonDarkBottom) { params = params.copy(hasColonDarkBottom = it) }
+                }
+
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ParameterSection(title: String) {
+    Spacer(Modifier.height(6.dp))
+    Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun ParamSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    decimals: Int = 2,
+    suffix: String = "",
+    onValueChange: (Float) -> Unit,
+) {
+    val factor = when (decimals) {
+        0 -> 1f
+        1 -> 10f
+        2 -> 100f
+        else -> 1000f
+    }
+    val rounded = (value * factor).roundToInt() / factor
+    Column(Modifier.fillMaxWidth()) {
+        Text("$label  $rounded$suffix", color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp)
+        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValueChange, valueRange = range)
+    }
+}
+
+@Composable
+private fun BoolControl(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun ColorEditor(label: String, color: TunableColor4, onChange: (TunableColor4) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(Color(color.r.coerceIn(0f, 1f), color.g.coerceIn(0f, 1f), color.b.coerceIn(0f, 1f), color.a.coerceIn(0f, 1f))),
+            )
+            Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+        ParamSlider("R", color.r, 0f..1f) { onChange(color.copy(r = it)) }
+        ParamSlider("G", color.g, 0f..1f) { onChange(color.copy(g = it)) }
+        ParamSlider("B", color.b, 0f..1f) { onChange(color.copy(b = it)) }
+        ParamSlider("A", color.a, 0f..1f) { onChange(color.copy(a = it)) }
+    }
+}
+
+private class TunableGlassPreviewView(context: Context) : View(context) {
+    private val bridge = ColorOsTunableGlassBridge(context)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var markerColor: Int? = null
+    private var wallpaper: Bitmap? = null
+    private var params = TunableGlassParams()
+    private var radiusPx = 0f
+    private var attachedWallpaperId = 0
+    private var attachedWidth = 0
+    private var attachedHeight = 0
+    private var scrollUpdatePosted = false
+
+    var onStatus: ((String) -> Unit)? = null
+
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener {
+        if (!scrollUpdatePosted) {
+            scrollUpdatePosted = true
+            postOnAnimation {
+                scrollUpdatePosted = false
+                bridge.updateGeometry(this)
+                    .onFailure { onStatus?.invoke("UNAVAILABLE — geometry: ${describe(it)}") }
+            }
+        }
+    }
+
+    init {
+        setLayerType(LAYER_TYPE_HARDWARE, null)
+        markerColor = bridge.locationColor().getOrNull()
+        paint.color = markerColor ?: AndroidColor.TRANSPARENT
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), radiusPx)
+            }
+        }
+        clipToOutline = true
+    }
+
+    fun configure(wallpaper: Bitmap, params: TunableGlassParams, radiusPx: Float) {
+        val wallpaperChanged = this.wallpaper !== wallpaper
+        this.wallpaper = wallpaper
+        this.params = params
+        this.radiusPx = radiusPx
+        markerColor = markerColor ?: bridge.locationColor().getOrNull()
+        paint.color = markerColor ?: AndroidColor.TRANSPARENT
+        invalidateOutline()
+        invalidate()
+
+        if (wallpaperChanged) attachedWallpaperId = 0
+        applyIfReady()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
+        attachedWallpaperId = 0
+        applyIfReady()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        invalidateOutline()
+        if (w != oldw || h != oldh) attachedWallpaperId = 0
+        applyIfReady()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        paint.color = markerColor ?: return
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radiusPx, radiusPx, paint)
+    }
+
+    override fun onDetachedFromWindow() {
+        bridge.clear(this)
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnScrollChangedListener(scrollListener)
+        super.onDetachedFromWindow()
+    }
+
+    private fun applyIfReady() {
+        val bg = wallpaper ?: return
+        if (!isAttachedToWindow || width <= 0 || height <= 0) return
+        val id = System.identityHashCode(bg)
+        val needsAttach = id != attachedWallpaperId || width != attachedWidth || height != attachedHeight
+        val result = if (needsAttach) {
+            bridge.attach(this, bg, params).onSuccess {
+                attachedWallpaperId = id
+                attachedWidth = width
+                attachedHeight = height
+            }
+        } else {
+            bridge.update(this, params)
+        }
+        result
+            .onSuccess { onStatus?.invoke("PASS — ${if (needsAttach) it.toString() else "live uniforms updated"}") }
+            .onFailure {
+                attachedWallpaperId = 0
+                onStatus?.invoke("UNAVAILABLE — ${describe(it)}")
+            }
+    }
+
+    private fun describe(t: Throwable): String {
+        val root = generateSequence(t) { it.cause }.last()
+        return "${root.javaClass.simpleName}:${root.message}"
+    }
+}
+
+private fun createTuningWallpaper(context: Context): Bitmap {
+    val dm = context.resources.displayMetrics
+    val w = dm.widthPixels.coerceAtLeast(720)
+    val h = dm.heightPixels.coerceAtLeast(1280)
+    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    paint.shader = LinearGradient(
+        0f, 0f, w.toFloat(), h.toFloat(),
+        intArrayOf(0xFF17112E.toInt(), 0xFF6459C7.toInt(), 0xFFFF7347.toInt(), 0xFF16275A.toInt()),
+        floatArrayOf(0f, 0.38f, 0.68f, 1f),
+        Shader.TileMode.CLAMP,
+    )
+    canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+    paint.shader = null
+    paint.color = 0xFFFFB126.toInt()
+    canvas.drawCircle(w * 0.77f, h * 0.44f, w * 0.32f, paint)
+    paint.color = 0xFF5F4CFF.toInt()
+    canvas.drawCircle(w * 0.20f, h * 0.64f, w * 0.27f, paint)
+    return bitmap
+}
+
+private fun normalizeTuningWallpaper(context: Context, source: Bitmap): Bitmap {
+    val dm = context.resources.displayMetrics
+    val w = dm.widthPixels.coerceAtLeast(1)
+    val h = dm.heightPixels.coerceAtLeast(1)
+    if (source.width == w && source.height == h) return source
+    val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val scale = maxOf(w / source.width.toFloat(), h / source.height.toFloat())
+    val sw = (w / scale).toInt().coerceAtLeast(1)
+    val sh = (h / scale).toInt().coerceAtLeast(1)
+    val left = ((source.width - sw) / 2).coerceAtLeast(0)
+    val top = ((source.height - sh) / 2).coerceAtLeast(0)
+    Canvas(out).drawBitmap(
+        source,
+        Rect(left, top, (left + sw).coerceAtMost(source.width), (top + sh).coerceAtMost(source.height)),
+        Rect(0, 0, w, h),
+        Paint(Paint.ANTI_ALIAS_FLAG),
+    )
+    return out
+}
