@@ -32,8 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiAuditScope
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiCompleteInventory
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiExecutionRegistry
-import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiLiquidGlassCatalog
 
 /**
  * Runtime audit for the complete SystemUI material set. A core item only passes when its semantic
@@ -55,8 +55,8 @@ fun SystemUiScopedAuditOverlay() {
     }
 
     val context = LocalContext.current
-    val catalog = remember(context) { ColorOsSystemUiLiquidGlassCatalog(context) }
-    val mappings = remember(catalog) { catalog.mappings() }
+    val inventory = remember(context) { ColorOsSystemUiCompleteInventory(context) }
+    val mappings = remember(inventory) { inventory.mappings() }
     val classified = remember(mappings) { ColorOsSystemUiAuditScope.classifyAll(mappings) }
     val summary = remember(mappings) { ColorOsSystemUiAuditScope.summary(mappings) }
     val core = remember(classified) { classified.filter { it.scope == ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL } }
@@ -78,7 +78,7 @@ fun SystemUiScopedAuditOverlay() {
             }
 
             BasicText(
-                "运行时继续扫描 SystemUI base/split DEX 与 shader 资源。CORE_MATERIAL 只有在三项同时成立时才通过：SystemUI→Kyant 语义映射存在、能解析成实际 Kyant API 契约、并且存在与执行模式兼容的 ColorOS bridge/GL/宿主路由。",
+                "运行时扫描 SystemUI base/split DEX 与 shader 资源，并强制补入已证明可执行但类名可能逃过关键词扫描的业务入口。CORE_MATERIAL 只有在三项同时成立时才通过：SystemUI→Kyant 语义映射存在、能解析成实际 Kyant API 契约、并且存在与执行模式兼容的 ColorOS bridge/GL/宿主路由。",
                 style = scopeInfoStyle(),
             )
 
