@@ -4,12 +4,12 @@ import android.content.Context
 import java.lang.reflect.Modifier
 
 /**
- * Safe runtime inspection for CAPABILITY_ONLY material classes used by SystemUI.
+ * Safe runtime inspection for CAPABILITY_ONLY material classes/resources used by SystemUI.
  *
  * The strict inventory spans com.android.systemui, com.oplus.uxdesign and the personality-clocks
- * plugin. This bridge therefore resolves each class through the package that actually owns it,
- * while keeping the same conservative inspection rules: no arbitrary business calls, only enum
- * values/static constants, signatures and safe zero-argument scalar getters.
+ * plugin. Classes are resolved through their owning package. external:// shader rows are read from
+ * the owning APK and expose only interface evidence (size/uniform/sampler/version lines); unknown
+ * shader inputs are never fabricated or executed.
  */
 internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
     companion object {
@@ -18,6 +18,7 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
         private const val CLOCK_PACKAGE = "com.oplus.keyguard.personality.clocks"
         private const val MAX_SIGNATURES = 80
         private const val MAX_VALUES = 80
+        private const val MAX_SHADER_CHARS = 128 * 1024
     }
 
     data class Snapshot(
@@ -59,7 +60,14 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
         )
     }
 
-    fun inspect(className: String): Result<Snapshot> = runCatching {
+    fun inspect(implementation: String): Result<Snapshot> =
+        if (implementation.startsWith("external://")) {
+            inspectExternalShader(implementation)
+        } else {
+            inspectClass(implementation)
+        }
+
+    private fun inspectClass(className: String): Result<Snapshot> = runCatching {
         val clazz = loadClass(className)
         val enumConstants = clazz.enumConstants?.map { (it as Enum<*>).name }.orEmpty()
 
@@ -132,6 +140,108 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
             methodSignatures = signatures,
             instanceSource = instance.second,
         )
+    }
+
+    private fun inspectExternalShader(uri: String): Result<Snapshot> = runCatching {
+        val parsed = parseExternalUri(uri)
+        val packageContext = packageContextFor(parsed.packageName).getOrThrow()
+        val source = when (parsed.kind) {
+            ExternalKind.ASSET -> packageContext.assets.open(parsed.path).use(::readShaderPrefix)
+            ExternalKind.RAW -> {
+                val rawName = parsed.path.substringBeforeLast('.')
+                val id = packageContext.resources.getIdentifier(rawName, "raw", parsed.packageName)
+                require(id != 0) { "raw resource $rawName not found in ${parsed.packageName}" }
+                packageContext.resources.openRawResource(id).use(::readShaderPrefix)
+            }
+        }
+        require(source.isNotBlank()) { "shader resource is empty" }
+
+        val interfaceLines = source.lineSequence()
+            .map(String::trim)
+            .filter { line ->
+                line.startsWith("uniform ") ||
+                    line.startsWith("layout(") ||
+                    line.startsWith("#version") ||
+                    "sampler2D" in line ||
+                    " shader " in " $line "
+            }
+            .distinct()
+            .take(MAX_SIGNATURES)
+            .toList()
+
+        val lower = source.lowercase()
+        val features = buildList {
+            if ("uniform shader" in lower) add("feature=AGSL child shader input")
+            if ("sampler2d" in lower) add("feature=GLSL sampler2D input")
+            if ("smoothstep" in lower || "distance" in lower || "sdf" in lower) add("feature=distance/SDF-style field")
+            if ("blur" in lower) add("feature=blur-related source")
+            if ("chromatic" in lower || "dispersion" in lower) add("feature=chromatic/dispersion-related source")
+            if ("refract" in lower) add("feature=refraction-related source")
+            if ("stroke" in lower || "edge" in lower) add("feature=edge/stroke-related source")
+            if ("shadow" in lower) add("feature=shadow-related source")
+        }
+
+        Snapshot(
+            className = uri,
+            superClass = null,
+            enumConstants = emptyList(),
+            staticConstants = listOf(
+                "package=${parsed.packageName}",
+                "resource=${parsed.kind.name.lowercase()}:${parsed.path}",
+                "sourceChars=${source.length}",
+            ) + features,
+            getterValues = emptyList(),
+            methodSignatures = interfaceLines.map { "shader: $it" },
+            instanceSource = "APK shader resource audit",
+        )
+    }
+
+    private enum class ExternalKind { ASSET, RAW }
+
+    private data class ExternalResource(
+        val packageName: String,
+        val kind: ExternalKind,
+        val path: String,
+    )
+
+    private fun parseExternalUri(uri: String): ExternalResource {
+        val payload = uri.removePrefix("external://")
+        val slash = payload.indexOf('/')
+        require(slash > 0) { "invalid external shader URI: $uri" }
+        val packageName = payload.substring(0, slash)
+        val resource = payload.substring(slash + 1)
+        return when {
+            resource.startsWith("assets/") -> ExternalResource(
+                packageName,
+                ExternalKind.ASSET,
+                resource.removePrefix("assets/"),
+            )
+            resource.startsWith("res/raw/") -> ExternalResource(
+                packageName,
+                ExternalKind.RAW,
+                resource.removePrefix("res/raw/"),
+            )
+            else -> error("unsupported external resource URI: $uri")
+        }
+    }
+
+    private fun packageContextFor(packageName: String): Result<Context> = when (packageName) {
+        SYSTEM_UI_PACKAGE -> systemUiContext
+        UX_PACKAGE -> uxContext
+        CLOCK_PACKAGE -> clockContext
+        else -> Result.failure(IllegalArgumentException("unsupported material package: $packageName"))
+    }
+
+    private fun readShaderPrefix(input: java.io.InputStream): String {
+        val reader = input.bufferedReader()
+        val buffer = CharArray(4096)
+        val out = StringBuilder(minOf(MAX_SHADER_CHARS, 16 * 1024))
+        while (out.length < MAX_SHADER_CHARS) {
+            val count = reader.read(buffer, 0, minOf(buffer.size, MAX_SHADER_CHARS - out.length))
+            if (count <= 0) break
+            out.append(buffer, 0, count)
+        }
+        return out.toString()
     }
 
     private fun loadClass(className: String): Class<*> {
