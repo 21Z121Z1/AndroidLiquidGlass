@@ -19,6 +19,7 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams",
         "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
         "com.oplus.systemui.volume.OplusVolumeSeekBar",
+        "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
     )
 
     data class ScopedSummary(
