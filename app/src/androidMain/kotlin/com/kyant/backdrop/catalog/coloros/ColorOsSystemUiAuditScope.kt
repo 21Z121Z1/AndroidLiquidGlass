@@ -4,10 +4,7 @@ package com.kyant.backdrop.catalog.coloros
  * Strict SystemUI material audit.
  *
  * A CORE_MATERIAL row is complete only when four independent conditions hold:
- * 1. semantic SystemUI -> Kyant mapping exists;
- * 2. a strongly typed Kyant parity contract resolves to concrete Kyant APIs;
- * 3. ColorOS has an explicit execution route compatible with the effective execution mode;
- * 4. an explicit delta describes what is and is not equivalent between the two implementations.
+ * semantic mapping, concrete Kyant contract, compatible ColorOS execution route and explicit delta.
  */
 internal object ColorOsSystemUiAuditScope {
     enum class Scope { CORE_MATERIAL, ADJACENT_GRAPHICS }
@@ -33,6 +30,17 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.view.OplusViewBackgroundRenderEffect" to "Oplus View 后景 RenderEffect 挂载原语",
         "com.oplus.view.material.OplusMaterialUtil" to "Oplus 框架 edge/shadow/caustic 材质原语",
     )
+
+    private val COUI_PRIMITIVES = setOf(
+        "com.coui.appcompat.COUIMaterialBlurEffect",
+        "com.coui.appcompat.COUIMaterialStrokeEffect",
+        "com.coui.appcompat.spotlight.COUISpotLightEffect",
+        "com.coui.appcompat.toolbar.ToolbarMaterialEffectDelegate",
+        "com.coui.appcompat.toolbar.AppBarBlurHelper",
+    )
+
+    private const val GLASS_BUILDER =
+        "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder"
 
     data class ScopedSummary(
         val total: Int,
@@ -65,16 +73,10 @@ internal object ColorOsSystemUiAuditScope {
         val missingDeltas: List<String>,
     ) {
         val coreComplete: Boolean
-            get() = coreUnmapped == 0 &&
-                coreContractMissing == 0 &&
-                coreRouteMissing == 0 &&
-                coreRouteIncompatible == 0 &&
-                coreDeltaMissing == 0
-
+            get() = coreUnmapped == 0 && coreContractMissing == 0 && coreRouteMissing == 0 &&
+                coreRouteIncompatible == 0 && coreDeltaMissing == 0
         val coreCoveragePercent: Float
-            get() = if (core == 0) 100f else {
-                minOf(coreMapped, coreContracted, coreRouted, coreDeltaResolved) * 100f / core
-            }
+            get() = if (core == 0) 100f else minOf(coreMapped, coreContracted, coreRouted, coreDeltaResolved) * 100f / core
     }
 
     data class Classified(
@@ -89,16 +91,17 @@ internal object ColorOsSystemUiAuditScope {
     fun classify(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Classified {
         val impl = mapping.systemUiImplementation
         val lower = impl.lowercase()
-
         val coreReason = when {
             impl in FRAMEWORK_PRIMITIVES -> FRAMEWORK_PRIMITIVES.getValue(impl)
+            impl in COUI_PRIMITIVES -> "SystemUI 消费的外部 COUI shipping 材质原语"
+            impl == GLASS_BUILDER -> "SystemUI 锁屏插件真实折射/色散 GlassEffectBuilder"
             impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
             impl.startsWith("com.oplusos.systemui.common.blurability.") -> "ColorOS SystemUI blurability 核心"
             impl.startsWith("com.oplusos.systemui.common.adapter.MixColor") -> "SystemUI shipping 材质预设适配器"
             impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider" -> "QS shipping blur/mix 配方入口"
             impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper" -> "SystemUI shader blend 参数更新器"
-            impl.startsWith("com.oplusos.systemui.common.util.") &&
-                listOf("blur", "stroke", "material").any(lower::contains) -> "SystemUI 公共材质参数/模糊工具"
+            impl.startsWith("com.oplusos.systemui.common.util.") && listOf("blur", "stroke", "material").any(lower::contains) ->
+                "SystemUI 公共材质参数/模糊工具"
             impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> "QS 真实业务 View；onDraw 进入 QsSeekBarBlurManager"
             impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 VolumeBarMaterialHost/StrokeRenderer"
             impl.startsWith("com.oplus.systemui.notification.") &&
@@ -107,12 +110,10 @@ internal object ColorOsSystemUiAuditScope {
                 listOf("material", "gradientmask", "multilayerblur").any(lower::contains) -> "锁屏材质/渐变模糊子系统"
             impl.startsWith("com.oplus.systemui.blur.") -> "SystemUI Oplus 模糊/颜色基础设施"
             "oplusqsdialogblur" in lower -> "QS 对话框模糊背景"
-            ".qs." in impl && listOf(
-                "blur", "material", "spotlight", "stroke", "metaball", "multilight", "progressive",
-            ).any(lower::contains) -> "控制中心/QS 材质子系统"
-            ".volume." in impl && listOf(
-                "blur", "material", "spotlight", "stroke", "metaball", "geometry",
-            ).any(lower::contains) -> "音量面板材质子系统"
+            ".qs." in impl && listOf("blur", "material", "spotlight", "stroke", "metaball", "multilight", "progressive").any(lower::contains) ->
+                "控制中心/QS 材质子系统"
+            ".volume." in impl && listOf("blur", "material", "spotlight", "stroke", "metaball", "geometry").any(lower::contains) ->
+                "音量面板材质子系统"
             ".wallpaperblur." in impl -> "壁纸模糊输入子系统"
             ".biometrics.material." in impl -> "生物识别材质子系统"
             ".panelanimation.platformblur." in impl -> "全局面板平台模糊子系统"
@@ -123,9 +124,9 @@ internal object ColorOsSystemUiAuditScope {
 
         if (coreReason == null) {
             return Classified(
-                mapping = mapping,
-                scope = Scope.ADJACENT_GRAPHICS,
-                reason = when {
+                mapping,
+                Scope.ADJACENT_GRAPHICS,
+                when {
                     impl.startsWith("com.android.systemui.") -> "AOSP/SystemUI 相邻图形或动画设施"
                     "ripple" in lower -> "ripple 相邻图形效果"
                     "shadow" in lower -> "通用 shadow，相邻但未证明属于 ColorOS 材质管线"
@@ -133,9 +134,9 @@ internal object ColorOsSystemUiAuditScope {
                     "shader" in lower -> "通用 shader，相邻能力"
                     else -> "高召回扫描命中，但缺少 ColorOS 材质调用链证据"
                 },
-                parityContract = null,
-                executionRoute = null,
-                delta = null,
+                null,
+                null,
+                null,
             )
         }
 
@@ -143,12 +144,12 @@ internal object ColorOsSystemUiAuditScope {
         val contract = ColorOsSystemUiParityResolver.resolve(mapping)
         val route = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective)
         return Classified(
-            mapping = mapping,
-            scope = Scope.CORE_MATERIAL,
-            reason = coreReason,
-            parityContract = contract,
-            executionRoute = route,
-            delta = ColorOsKyantDelta.resolve(mapping, contract, route),
+            mapping,
+            Scope.CORE_MATERIAL,
+            coreReason,
+            contract,
+            route,
+            ColorOsKyantDelta.resolve(mapping, contract, route),
         )
     }
 
@@ -157,8 +158,8 @@ internal object ColorOsSystemUiAuditScope {
         return when {
             impl in DIRECT_EXECUTION_OVERRIDES -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW
             impl in PARAMETER_ONLY_OVERRIDES -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
-            mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE &&
-                !isExecutableGlResource(impl) -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
+            mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE && !isExecutableGlResource(impl) ->
+                ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
             else -> mapping.executionMode
         }
     }
@@ -180,8 +181,6 @@ internal object ColorOsSystemUiAuditScope {
         }
         val resolvedDeltas = core.filter { it.delta != null }
         val missingDeltas = core.filter { it.delta == null }
-        val adjacentMapped = adjacent.count { isTextMapped(it.mapping) }
-
         return ScopedSummary(
             total = classified.size,
             core = core.size,
@@ -212,12 +211,10 @@ internal object ColorOsSystemUiAuditScope {
             deltaCompositeEquivalent = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.COMPOSITE_EQUIVALENT },
             deltaNearestOnly = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.NEAREST_ONLY },
             deltaHostOnly = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.HOST_ONLY },
-            adjacentMapped = adjacentMapped,
+            adjacentMapped = adjacent.count { isTextMapped(it.mapping) },
             missingContracts = missingContracts.map { it.mapping.systemUiImplementation },
             missingRoutes = missingRoutes.map { it.mapping.systemUiImplementation },
-            incompatibleRoutes = incompatibleRoutes.map { item ->
-                "${item.mapping.systemUiImplementation}: ${effectiveExecution(item.mapping)} -> ${item.executionRoute}"
-            },
+            incompatibleRoutes = incompatibleRoutes.map { "${it.mapping.systemUiImplementation}: ${effectiveExecution(it.mapping)} -> ${it.executionRoute}" },
             missingDeltas = missingDeltas.map { it.mapping.systemUiImplementation },
         )
     }
