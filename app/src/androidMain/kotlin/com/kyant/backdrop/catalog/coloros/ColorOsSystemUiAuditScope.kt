@@ -1,13 +1,13 @@
 package com.kyant.backdrop.catalog.coloros
 
 /**
- * Separates the high-recall SystemUI graphics scan into the ColorOS material/Liquid-Glass core
- * and merely adjacent graphics infrastructure.
+ * Strict SystemUI material audit.
  *
- * A CORE_MATERIAL row is complete only when three independent conditions hold:
+ * A CORE_MATERIAL row is complete only when four independent conditions hold:
  * 1. semantic SystemUI -> Kyant mapping exists;
  * 2. a strongly typed Kyant parity contract resolves to concrete Kyant APIs;
- * 3. ColorOS has an explicit execution route compatible with the row's effective execution mode.
+ * 3. ColorOS has an explicit execution route compatible with the effective execution mode;
+ * 4. an explicit delta describes what is and is not equivalent between the two implementations.
  */
 internal object ColorOsSystemUiAuditScope {
     enum class Scope { CORE_MATERIAL, ADJACENT_GRAPHICS }
@@ -33,6 +33,8 @@ internal object ColorOsSystemUiAuditScope {
         val coreRouted: Int,
         val coreRouteMissing: Int,
         val coreRouteIncompatible: Int,
+        val coreDeltaResolved: Int,
+        val coreDeltaMissing: Int,
         val coreAvailable: Int,
         val coreDirect: Int,
         val coreHostBound: Int,
@@ -40,19 +42,27 @@ internal object ColorOsSystemUiAuditScope {
         val parityComposite: Int,
         val parityNearestOnly: Int,
         val parityHostLifecycle: Int,
+        val deltaExactMechanism: Int,
+        val deltaCompositeEquivalent: Int,
+        val deltaNearestOnly: Int,
+        val deltaHostOnly: Int,
         val adjacentMapped: Int,
         val missingContracts: List<String>,
         val missingRoutes: List<String>,
         val incompatibleRoutes: List<String>,
+        val missingDeltas: List<String>,
     ) {
         val coreComplete: Boolean
             get() = coreUnmapped == 0 &&
                 coreContractMissing == 0 &&
                 coreRouteMissing == 0 &&
-                coreRouteIncompatible == 0
+                coreRouteIncompatible == 0 &&
+                coreDeltaMissing == 0
 
         val coreCoveragePercent: Float
-            get() = if (core == 0) 100f else minOf(coreMapped, coreContracted, coreRouted) * 100f / core
+            get() = if (core == 0) 100f else {
+                minOf(coreMapped, coreContracted, coreRouted, coreDeltaResolved) * 100f / core
+            }
     }
 
     data class Classified(
@@ -61,6 +71,7 @@ internal object ColorOsSystemUiAuditScope {
         val reason: String,
         val parityContract: ColorOsKyantParityContract.Contract?,
         val executionRoute: ColorOsSystemUiExecutionRegistry.Route?,
+        val delta: ColorOsKyantDelta.Delta?,
     )
 
     fun classify(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Classified {
@@ -118,16 +129,20 @@ internal object ColorOsSystemUiAuditScope {
                 },
                 parityContract = null,
                 executionRoute = null,
+                delta = null,
             )
         }
 
         val effective = effectiveExecution(mapping)
+        val contract = ColorOsSystemUiParityResolver.resolve(mapping)
+        val route = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective)
         return Classified(
             mapping = mapping,
             scope = Scope.CORE_MATERIAL,
             reason = coreReason,
-            parityContract = ColorOsSystemUiParityResolver.resolve(mapping),
-            executionRoute = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective),
+            parityContract = contract,
+            executionRoute = route,
+            delta = ColorOsKyantDelta.resolve(mapping, contract, route),
         )
     }
 
@@ -155,6 +170,8 @@ internal object ColorOsSystemUiAuditScope {
             val route = item.executionRoute ?: return@filter false
             !ColorOsSystemUiExecutionRegistry.routeIsCompatible(route, effectiveExecution(item.mapping))
         }
+        val resolvedDeltas = core.filter { it.delta != null }
+        val missingDeltas = core.filter { it.delta == null }
         val adjacentMapped = adjacent.count { isTextMapped(it.mapping) }
 
         return ScopedSummary(
@@ -168,6 +185,8 @@ internal object ColorOsSystemUiAuditScope {
             coreRouted = routed.size,
             coreRouteMissing = missingRoutes.size,
             coreRouteIncompatible = incompatibleRoutes.size,
+            coreDeltaResolved = resolvedDeltas.size,
+            coreDeltaMissing = missingDeltas.size,
             coreAvailable = core.count { it.mapping.status.startsWith("available") },
             coreDirect = core.count {
                 val mode = effectiveExecution(it.mapping)
@@ -183,12 +202,17 @@ internal object ColorOsSystemUiAuditScope {
             parityComposite = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.COMPOSITE },
             parityNearestOnly = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.NEAREST_ONLY },
             parityHostLifecycle = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.HOST_LIFECYCLE },
+            deltaExactMechanism = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.EXACT_MECHANISM },
+            deltaCompositeEquivalent = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.COMPOSITE_EQUIVALENT },
+            deltaNearestOnly = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.NEAREST_ONLY },
+            deltaHostOnly = resolvedDeltas.count { it.delta?.grade == ColorOsKyantDelta.Grade.HOST_ONLY },
             adjacentMapped = adjacentMapped,
             missingContracts = missingContracts.map { it.mapping.systemUiImplementation },
             missingRoutes = missingRoutes.map { it.mapping.systemUiImplementation },
             incompatibleRoutes = incompatibleRoutes.map { item ->
                 "${item.mapping.systemUiImplementation}: ${effectiveExecution(item.mapping)} -> ${item.executionRoute}"
             },
+            missingDeltas = missingDeltas.map { it.mapping.systemUiImplementation },
         )
     }
 
