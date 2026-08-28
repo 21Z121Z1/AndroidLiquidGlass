@@ -1,5 +1,12 @@
 package com.kyant.backdrop.catalog
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,13 +35,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -42,6 +52,7 @@ import com.kyant.backdrop.catalog.coloros.ColorOsKyantParityContract
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiAuditScope
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiCompleteInventory
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiExecutionRegistry
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiRouteHostView
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
@@ -55,9 +66,8 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 
 /**
- * Executable Kyant reference browser for every CORE_MATERIAL implementation in the strict
- * SystemUI inventory. The selected row shows both the real ColorOS execution route and the Kyant
- * recipe, so the two sides cannot silently drift into separate hand-maintained inventories.
+ * Executable A/B browser for every CORE_MATERIAL implementation in the strict SystemUI inventory.
+ * The selected row uses the same bitmap input for the real ColorOS route and the Kyant reference.
  */
 @Composable
 fun SystemUiKyantParityOverlay() {
@@ -73,6 +83,8 @@ fun SystemUiKyantParityOverlay() {
     }
 
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val wallpaper = remember { createParityWallpaper() }
     val inventory = remember(context) { ColorOsSystemUiCompleteInventory(context) }
     val mappings = remember(inventory) { inventory.mappings() }
     val core = remember(mappings) {
@@ -82,25 +94,18 @@ fun SystemUiKyantParityOverlay() {
     val summary = remember(mappings) { ColorOsSystemUiAuditScope.summary(mappings) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     var spotlightAngle by rememberSaveable { mutableFloatStateOf(45f) }
+    var routeProgress by rememberSaveable { mutableFloatStateOf(0.65f) }
+    var colorOsStatus by remember { mutableStateOf("等待 ColorOS 原实现…") }
     val safeIndex = selectedIndex.coerceIn(0, (core.size - 1).coerceAtLeast(0))
     val selected = core.getOrNull(safeIndex)
     val backdrop = rememberLayerBackdrop()
 
     Box(Modifier.fillMaxSize().background(Color(0xFF07090E))) {
-        Box(
-            Modifier
-                .layerBackdrop(backdrop)
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color(0xFF15366E),
-                            Color(0xFF8A4DB2),
-                            Color(0xFF10A8B8),
-                            Color(0xFFF3A936),
-                        ),
-                    ),
-                ),
+        Image(
+            bitmap = wallpaper.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.layerBackdrop(backdrop).fillMaxSize(),
+            contentScale = ContentScale.Crop,
         )
 
         Column(
@@ -118,7 +123,7 @@ fun SystemUiKyantParityOverlay() {
             }
 
             BasicText(
-                "同一份严格清单同时驱动两边：ColorOS 项必须有明确 bridge/GL/宿主路由，Kyant 项必须有强类型 API recipe。缺任何一边都会让闸门失败。已证明的业务 View 还会被强制纳入，即使其类名不命中高召回关键词。",
+                "同一份严格清单同时驱动两边。选中任一核心项后，上方直接执行设备已安装 SystemUI 的 ColorOS route，下方执行该项的 Kyant 强类型 recipe；两边共用同一张输入位图。HOST/SURFACE_CONTROL 项明确显示边界，不用仿制 shader 偷换。",
                 style = parityInfo(),
             )
 
@@ -161,6 +166,32 @@ fun SystemUiKyantParityOverlay() {
                     }
                 }
 
+                BasicText("ColorOS · 当前固件原实现", style = TextStyle(Color(0xFF90CAF9), 13.sp, FontWeight.SemiBold))
+                AndroidView(
+                    factory = { ColorOsSystemUiRouteHostView(it) },
+                    update = { view ->
+                        view.onStatus = { colorOsStatus = it }
+                        view.configure(
+                            route = route,
+                            wallpaper = wallpaper,
+                            radiusPx = with(density) { 34.dp.toPx() },
+                            progress = routeProgress,
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(28.dp)),
+                )
+                BasicText(colorOsStatus, style = parityDiag())
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ParityButton("状态 25%") { routeProgress = 0.25f }
+                    ParityButton("65%") { routeProgress = 0.65f }
+                    ParityButton("100%") { routeProgress = 1f }
+                }
+
+                BasicText("Kyant · 对应机制参考", style = TextStyle(Color(0xFFC5E1A5), 13.sp, FontWeight.SemiBold))
                 KyantRecipeSurface(contract, backdrop, spotlightAngle)
 
                 if (contract?.recipe == ColorOsKyantParityContract.Recipe.SPOTLIGHT) {
@@ -190,7 +221,10 @@ fun SystemUiKyantParityOverlay() {
                             if (selectedRow) Color.White.copy(alpha = 0.16f)
                             else Color.Black.copy(alpha = 0.24f),
                         )
-                        .clickable { selectedIndex = index }
+                        .clickable {
+                            selectedIndex = index
+                            colorOsStatus = "等待 ColorOS 原实现…"
+                        }
                         .padding(9.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -446,6 +480,36 @@ private fun ParityButton(text: String, onClick: () -> Unit) {
     ) {
         BasicText(text, style = TextStyle(Color.White, 12.sp, FontWeight.SemiBold))
     }
+}
+
+private fun createParityWallpaper(width: Int = 1080, height: Int = 1800): Bitmap {
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    paint.shader = LinearGradient(
+        0f,
+        0f,
+        width.toFloat(),
+        height.toFloat(),
+        intArrayOf(
+            AndroidColor.rgb(18, 51, 108),
+            AndroidColor.rgb(128, 64, 171),
+            AndroidColor.rgb(18, 165, 181),
+            AndroidColor.rgb(239, 166, 51),
+        ),
+        floatArrayOf(0f, 0.34f, 0.68f, 1f),
+        Shader.TileMode.CLAMP,
+    )
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+
+    paint.shader = null
+    paint.color = AndroidColor.argb(190, 255, 255, 255)
+    repeat(8) { index ->
+        val cx = width * (0.13f + (index % 4) * 0.24f)
+        val cy = height * (0.17f + (index / 4) * 0.48f)
+        canvas.drawCircle(cx, cy, width * (0.035f + index * 0.003f), paint)
+    }
+    return bitmap
 }
 
 private fun parityInfo() = TextStyle(Color.White.copy(alpha = 0.79f), 11.sp)
