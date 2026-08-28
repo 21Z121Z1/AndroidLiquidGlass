@@ -3,6 +3,7 @@ package com.kyant.backdrop.catalog.coloros
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RenderEffect
+import android.graphics.RuntimeShader
 import android.os.Build
 import android.view.View
 import java.lang.reflect.Method
@@ -20,6 +21,7 @@ internal class ColorOsClockGlassBridge(context: Context) {
     companion object {
         private const val CLOCK_PACKAGE = "com.oplus.keyguard.personality.clocks"
         private const val BUILDER_CLASS = "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder"
+        private const val MULTI_INPUT_CLASS = "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.RenderEffectMultiInput"
         private const val VEC2_CLASS = "$BUILDER_CLASS\$Vec2"
         private const val VEC4_CLASS = "$BUILDER_CLASS\$Vec4"
         private const val PARA_TABLE_CLASS = "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.protocol.GlassParaTable"
@@ -43,9 +45,10 @@ internal class ColorOsClockGlassBridge(context: Context) {
     fun diagnostics(): List<String> = buildList {
         add("package=$CLOCK_PACKAGE")
         add("sdk=${Build.VERSION.SDK_INT}")
-        add("packageContext=${vendorContextResult.fold({ "loaded:${it.packageName}" }, { "failed:${it.javaClass.simpleName}:${it.message}" })}")
+        add("packageContext=${vendorContextResult.fold({ "loaded:${it.packageName}" }, { "failed:${describeThrowable(it)}" })}")
         if (vendorContextResult.isSuccess) {
             add(classStatus(BUILDER_CLASS))
+            add(classStatus(MULTI_INPUT_CLASS))
             add(classStatus(VEC2_CLASS))
             add(classStatus(VEC4_CLASS))
             add(classStatus(PARA_TABLE_CLASS))
@@ -67,12 +70,14 @@ internal class ColorOsClockGlassBridge(context: Context) {
                             "setOnlyViewContext",
                             "buildRenderEffect",
                             "getRenderEffect",
+                            "getRenderEffectParamsDumpInfo",
                             "release"
                         )
                     }
                     .sortedBy { it.name }
                     .forEach { add(signature(it)) }
             }
+            addAll(hiddenMultiInputDiagnostics())
         }
     }
 
@@ -134,7 +139,11 @@ internal class ColorOsClockGlassBridge(context: Context) {
 
             invokeRequired(builder, "buildRenderEffect")
             val effect = invokeRequired(builder, "getRenderEffect") as? RenderEffect
-                ?: error("getRenderEffect() did not return android.graphics.RenderEffect")
+            if (effect == null) {
+                error(
+                    "getRenderEffect() returned null. ${builderFailureDiagnostics(builder).joinToString(" | ")}"
+                )
+            }
             view.setRenderEffect(effect)
 
             retained.put(view, builder)?.let { old -> runCatching { invokeOptional(old, "release") } }
@@ -184,6 +193,99 @@ internal class ColorOsClockGlassBridge(context: Context) {
         method.invoke(builder, resolution, cropRect, 0, 1f)
     }
 
+    /**
+     * The ColorOS full glass path does not call the public two-argument
+     * RenderEffect.createRuntimeShaderEffect(RuntimeShader, String). Its own
+     * RenderEffectMultiInput helper reflectively searches for a hidden overload
+     * accepting two RenderEffect inputs (raw clock + 10px blurred clock).
+     *
+     * These probes deliberately do not bypass hidden-API policy. They expose
+     * exactly where an ordinary app process loses access while keeping the
+     * native-vs-generic experiment fail-closed.
+     */
+    private fun hiddenMultiInputDiagnostics(): List<String> = buildList {
+        if (Build.VERSION.SDK_INT < 33) {
+            add("multiInput=not-applicable-sdk<33")
+            return@buildList
+        }
+
+        add(probeFrameworkMultiInputMethod(includeRadius = true))
+        add(probeFrameworkMultiInputMethod(includeRadius = false))
+
+        runCatching {
+            val helperClass = loader.loadClass(MULTI_INPUT_CLASS)
+            val instance = helperClass.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+                ?: error("INSTANCE is null")
+            val resolve = helperClass.getDeclaredMethod("resolveCreateMethod").apply { isAccessible = true }
+            val resolved = resolve.invoke(instance) as? Method
+            add("vendorMultiInput.resolve=${resolved?.toGenericString() ?: "null"}")
+            add(multiInputState(helperClass))
+        }.onFailure {
+            add("vendorMultiInput.probe=failed:${describeThrowable(it)}")
+        }
+    }
+
+    private fun probeFrameworkMultiInputMethod(includeRadius: Boolean): String {
+        val types = if (includeRadius) {
+            arrayOf(
+                RuntimeShader::class.java,
+                Array<String>::class.java,
+                Array<RenderEffect>::class.java,
+                java.lang.Float.TYPE
+            )
+        } else {
+            arrayOf(
+                RuntimeShader::class.java,
+                Array<String>::class.java,
+                Array<RenderEffect>::class.java
+            )
+        }
+        val label = if (includeRadius) "frameworkMultiInput4" else "frameworkMultiInput3"
+        return runCatching {
+            val method = RenderEffect::class.java.getDeclaredMethod("createRuntimeShaderEffect", *types)
+            val access = runCatching {
+                method.isAccessible = true
+                "accessible"
+            }.getOrElse { "access-failed:${describeThrowable(it)}" }
+            "$label=found:$access:${method.toGenericString()}"
+        }.getOrElse {
+            "$label=lookup-failed:${describeThrowable(it)}"
+        }
+    }
+
+    private fun builderFailureDiagnostics(builder: Any): List<String> = buildList {
+        val lowAnim = runCatching { invokeOptional(builder, "isLowAnimLevelOrBelow") }
+            .fold({ it?.toString() ?: "null" }, { "failed:${describeThrowable(it)}" })
+        add("lowAnim=$lowAnim")
+        add(fieldSummary(builder, "runtimeShader"))
+        add(fieldSummary(builder, "simpleRuntimeShader"))
+        add(fieldSummary(builder, "blurEffect"))
+        add(fieldSummary(builder, "renderEffect"))
+        runCatching { invokeOptional(builder, "getRenderEffectParamsDumpInfo") }
+            .onSuccess { add("params=${it?.toString()?.replace('\n', ' ')}") }
+            .onFailure { add("params=failed:${describeThrowable(it)}") }
+        runCatching {
+            val helperClass = loader.loadClass(MULTI_INPUT_CLASS)
+            add(multiInputState(helperClass))
+        }.onFailure {
+            add("multiInputState=failed:${describeThrowable(it)}")
+        }
+        add(probeFrameworkMultiInputMethod(includeRadius = true))
+        add(probeFrameworkMultiInputMethod(includeRadius = false))
+    }
+
+    private fun multiInputState(helperClass: Class<*>): String {
+        val attempted = helperClass.getDeclaredField("resolveAttempted").apply { isAccessible = true }.getBoolean(null)
+        val cached = helperClass.getDeclaredField("cachedMethod").apply { isAccessible = true }.get(null)
+        return "vendorMultiInput.state=resolveAttempted:$attempted,cachedMethod:${cached ?: "null"}"
+    }
+
+    private fun fieldSummary(receiver: Any, fieldName: String): String = runCatching {
+        val field = receiver.javaClass.getDeclaredField(fieldName).apply { isAccessible = true }
+        val value = field.get(receiver)
+        "$fieldName=${value?.javaClass?.name ?: "null"}"
+    }.getOrElse { "$fieldName=failed:${describeThrowable(it)}" }
+
     private fun invokeRequired(receiver: Any, name: String, vararg args: Any?): Any? {
         val method = findCompatible(receiver.javaClass, name, args)
             ?: error("${receiver.javaClass.name}.$name(${args.size}) not found")
@@ -222,11 +324,16 @@ internal class ColorOsClockGlassBridge(context: Context) {
     private fun classStatus(name: String): String = runCatching {
         val c = loader.loadClass(name)
         "class=$name loader=${c.classLoader}"
-    }.getOrElse { "class=$name failed=${it.javaClass.simpleName}:${it.message}" }
+    }.getOrElse { "class=$name failed=${describeThrowable(it)}" }
 
     private fun signature(method: Method): String = buildString {
         append(method.name).append('(')
         append(method.parameterTypes.joinToString { it.simpleName })
         append(") -> ").append(method.returnType.simpleName)
+    }
+
+    private fun describeThrowable(t: Throwable): String {
+        val root = generateSequence(t) { it.cause }.last()
+        return "${root.javaClass.simpleName}:${root.message}"
     }
 }
