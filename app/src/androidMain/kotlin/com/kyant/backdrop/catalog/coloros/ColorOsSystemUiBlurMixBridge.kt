@@ -72,7 +72,7 @@ internal class ColorOsSystemUiBlurMixBridge(context: Context) {
         val details: String,
     )
 
-    private sealed interface Spec {
+    internal sealed interface Spec {
         data class QsBoolFloat(val method: String, val dark: Boolean) : Spec
         data class QsBool(val method: String, val dark: Boolean) : Spec
         data class NotificationNormal(val mode: String, val darken: Boolean) : Spec
