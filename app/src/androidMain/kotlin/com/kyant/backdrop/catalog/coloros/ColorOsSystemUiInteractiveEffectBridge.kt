@@ -219,6 +219,8 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
         internal var sizeEffect: ((Int, Int) -> Unit)? = null
         internal var attachEffect: (() -> Unit)? = null
         internal var detachEffect: (() -> Unit)? = null
+        internal var onRuntimeStatus: ((String) -> Unit)? = null
+        private var firstDrawPassed = false
         private var runtimeFailure: String? = null
 
         init {
@@ -229,35 +231,52 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
 
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
-            safe { attachEffect?.invoke() }
+            safe("attach") { attachEffect?.invoke() }
         }
 
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
             super.onSizeChanged(w, h, oldw, oldh)
-            safe { sizeEffect?.invoke(w, h) }
+            safe("size") { sizeEffect?.invoke(w, h) }
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), minOf(width, height) * 0.18f, minOf(width, height) * 0.18f, basePaint)
-            safe { drawEffect?.invoke(canvas) }
+            canvas.drawRoundRect(
+                0f,
+                0f,
+                width.toFloat(),
+                height.toFloat(),
+                minOf(width, height) * 0.18f,
+                minOf(width, height) * 0.18f,
+                basePaint,
+            )
+            safe("draw") { drawEffect?.invoke(canvas) }
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            safe { touchEffect?.invoke(event) }
+            safe("touch") { touchEffect?.invoke(event) }
             invalidate()
             return true
         }
 
         override fun onDetachedFromWindow() {
-            safe { detachEffect?.invoke() }
+            safe("detach") { detachEffect?.invoke() }
             super.onDetachedFromWindow()
         }
 
-        private inline fun safe(block: () -> Unit) {
-            runCatching(block).onFailure {
-                runtimeFailure = "${it.javaClass.simpleName}:${it.message}"
-            }
+        private inline fun safe(stage: String, block: () -> Unit) {
+            runCatching(block)
+                .onSuccess {
+                    if (stage == "draw" && !firstDrawPassed && runtimeFailure == null) {
+                        firstDrawPassed = true
+                        onRuntimeStatus?.invoke("PASS — real SystemUI interactive draw completed")
+                    }
+                }
+                .onFailure {
+                    val root = generateSequence(it) { error -> error.cause }.last()
+                    runtimeFailure = "$stage:${root.javaClass.simpleName}:${root.message}"
+                    onRuntimeStatus?.invoke("UNAVAILABLE — real SystemUI interactive $runtimeFailure")
+                }
         }
 
         override fun toString(): String = runtimeFailure?.let { "SystemUiInteractiveEffect(failure=$it)" }
