@@ -17,6 +17,11 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
         "com.oplus.systemui.volume.OplusVolumeSeekBar",
         "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
+        ColorOsSystemUiInteractiveEffectBridge.NOTIFICATION_SPOTLIGHT,
+        ColorOsSystemUiInteractiveEffectBridge.QS_MEDIA_SPOTLIGHT,
+        ColorOsSystemUiInteractiveEffectBridge.VOLUME_SETTINGS_SPOTLIGHT,
+        ColorOsSystemUiInteractiveEffectBridge.METABALL_LIGHT_RENDERER,
+        ColorOsSystemUiInteractiveEffectBridge.SCENARIO_LIGHT_DRAWABLE,
     )
 
     private val PARAMETER_ONLY_OVERRIDES = setOf(
@@ -99,6 +104,10 @@ internal object ColorOsSystemUiAuditScope {
                 "SystemUI shipping PostEffect 参数 recipe；每个 getter 独立进入严格对照"
             impl.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX) ->
                 "SystemUI shipping BlurMix recipe；direct shader 与 host-only 状态分别审计"
+            impl.startsWith(ColorOsSystemUiInteractiveRecipeInventory.PREFIX) ->
+                "SystemUI shipping 交互光学 recipe；真实 View/Canvas/MotionEvent 路径逐项直接执行"
+            impl == ColorOsSystemUiInteractiveEffectBridge.SCENARIO_LIGHT_DRAWABLE ->
+                "Scenario shipping Metaball 光照 drawable；内部创建真实 MetaballLightConfig/Renderer"
             mapping.group.startsWith("自动发现 · 外部") ->
                 "从 SystemUI 实际消费的外部材质包运行时发现；必须进入同一 Kyant/ColorOS 严格闸门"
             impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
