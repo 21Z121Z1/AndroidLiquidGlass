@@ -14,5 +14,6 @@ fun AndroidRootContent() {
         SystemUiBusinessViewsOverlay()
         SystemUiScopedAuditOverlay()
         SystemUiKyantParityOverlay()
+        SystemUiParameterAuditOverlay()
     }
 }
