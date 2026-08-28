@@ -4,7 +4,7 @@ import android.content.Context
 
 /**
  * Strict inventory = SystemUI runtime scan + proven business entries + framework/library/plugin
- * primitives actually consumed by the system UI material stack.
+ * primitives actually consumed by the system UI material stack + high-recall external-package scan.
  */
 internal class ColorOsSystemUiCompleteInventory(context: Context) {
     companion object {
@@ -34,12 +34,20 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
     private val uxLoader: ClassLoader get() = uxContextResult.getOrThrow().classLoader
     private val clockLoader: ClassLoader get() = clockContextResult.getOrThrow().classLoader
     private val runtimeCatalog = ColorOsSystemUiLiquidGlassCatalog(context)
+    private val externalCatalog = ColorOsExternalLiquidGlassCatalog(context)
 
     fun mappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> {
         val runtime = runtimeCatalog.mappings()
-        val seen = runtime.mapTo(hashSetOf()) { it.systemUiImplementation }
-        val required = requiredMappings().filter { it.systemUiImplementation !in seen }
-        return (runtime + required).sortedWith(
+        val runtimeNames = runtime.mapTo(hashSetOf()) { it.systemUiImplementation }
+
+        // Precise required mappings outrank generic external auto-discovery. This is important for
+        // known executable COUI/Glass entry points: an auto CAPABILITY_ONLY row must never suppress
+        // the already-proven DIRECT_VIEW route.
+        val required = requiredMappings().filter { it.systemUiImplementation !in runtimeNames }
+        val known = (runtime + required).mapTo(hashSetOf()) { it.systemUiImplementation }
+        val external = externalCatalog.mappings().filter { it.systemUiImplementation !in known }
+
+        return (runtime + required + external).sortedWith(
             compareBy<ColorOsSystemUiLiquidGlassCatalog.Mapping> { strictGroupRank(it.group) }
                 .thenBy { it.group }
                 .thenBy { it.systemUiImplementation },
@@ -109,9 +117,6 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             "edge/shadow/caustic 等材质参数的框架下沉层。",
         ),
 
-        // com.oplus.uxdesign is a separate package, but SystemUI material consumers use these
-        // COUI primitives. They must be audited alongside SystemUI rather than hidden behind a
-        // generic 'material' label.
         direct(
             "外部 COUI 材质原语 · 强制入口",
             "com.coui.appcompat.COUIMaterialBlurEffect",
@@ -143,9 +148,6 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             "调用 OplusRenderEffect.createGradientBlurEffect 的渐进模糊宿主。",
         ),
 
-        // True lock-screen refraction lives in the personality-clocks plugin, which SystemUI
-        // loads as a sub-plugin. Keep this path in the same parity matrix so the actual refractive
-        // glass cannot be confused with SystemUI Optics/Stroke effects.
         direct(
             "锁屏插件真折射 · 强制入口",
             "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder",
@@ -204,7 +206,9 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         group.startsWith("生物识别") -> 12
         group.startsWith("全局面板") -> 13
         group.startsWith("Metaball") -> 14
-        else -> 20
+        group.startsWith("自动发现 · 外部") -> 18
+        group.startsWith("自动发现") -> 20
+        else -> 25
     }
 
     private fun describe(t: Throwable): String {
