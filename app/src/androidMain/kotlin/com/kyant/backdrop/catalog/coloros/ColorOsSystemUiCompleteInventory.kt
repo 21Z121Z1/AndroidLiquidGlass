@@ -4,7 +4,8 @@ import android.content.Context
 
 /**
  * Strict inventory = SystemUI runtime scan + proven business entries + framework/library/plugin
- * primitives + every installed COUI preset + every discovered SystemUI shipping recipe + external scan.
+ * primitives + every installed COUI preset + every discovered SystemUI shipping recipe +
+ * directly executable interactive recipes + external scan.
  */
 internal class ColorOsSystemUiCompleteInventory(context: Context) {
     companion object {
@@ -37,6 +38,7 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
     private val externalCatalog = ColorOsExternalLiquidGlassCatalog(context)
     private val couiPresetInventory = ColorOsCouiPresetInventory(context)
     private val shippingRecipeInventory = ColorOsSystemUiShippingRecipeInventory(context)
+    private val interactiveRecipeInventory = ColorOsSystemUiInteractiveRecipeInventory(context)
 
     fun mappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> {
         val runtime = runtimeCatalog.mappings()
@@ -49,10 +51,16 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         val knownAfterCoui = (runtime + required + couiPresets).mapTo(hashSetOf()) { it.systemUiImplementation }
 
         val shippingRecipes = shippingRecipeInventory.mappings().filter { it.systemUiImplementation !in knownAfterCoui }
-        val known = (runtime + required + couiPresets + shippingRecipes).mapTo(hashSetOf()) { it.systemUiImplementation }
+        val knownAfterShipping = (runtime + required + couiPresets + shippingRecipes)
+            .mapTo(hashSetOf()) { it.systemUiImplementation }
+
+        val interactiveRecipes = interactiveRecipeInventory.mappings()
+            .filter { it.systemUiImplementation !in knownAfterShipping }
+        val known = (runtime + required + couiPresets + shippingRecipes + interactiveRecipes)
+            .mapTo(hashSetOf()) { it.systemUiImplementation }
         val external = externalCatalog.mappings().filter { it.systemUiImplementation !in known }
 
-        return (runtime + required + couiPresets + shippingRecipes + external).sortedWith(
+        return (runtime + required + couiPresets + shippingRecipes + interactiveRecipes + external).sortedWith(
             compareBy<ColorOsSystemUiLiquidGlassCatalog.Mapping> { strictGroupRank(it.group) }
                 .thenBy { it.group }
                 .thenBy { it.systemUiImplementation },
@@ -101,6 +109,12 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
             "LayerBackdrop/source bitmap + blur surface tint",
             "已有普通 Drawable 执行桥。",
+        ),
+        direct(
+            "Metaball 光照 · 强制入口",
+            ColorOsSystemUiInteractiveEffectBridge.SCENARIO_LIGHT_DRAWABLE,
+            "Metaball nearest: Shape/SDF + Highlight",
+            "真实 shipping ScenarioLightBackgroundDrawable；内部创建 MetaballLightConfig 与 MetaballLightRenderer。",
         ),
 
         capability(
@@ -202,16 +216,17 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         group.startsWith("外部框架原语") -> 3
         group.startsWith("外部 COUI") -> 4
         group.startsWith("SystemUI shipping recipe") -> 5
-        group.startsWith("公共模糊") -> 6
-        group.startsWith("通知") -> 7
-        group.startsWith("控制中心") -> 8
-        group.startsWith("音量") -> 9
-        group.startsWith("锁屏插件") -> 10
-        group.startsWith("锁屏") -> 11
-        group.startsWith("壁纸") -> 12
-        group.startsWith("生物识别") -> 13
-        group.startsWith("全局面板") -> 14
-        group.startsWith("Metaball") -> 15
+        group.startsWith("SystemUI interactive shipping recipe") -> 6
+        group.startsWith("公共模糊") -> 7
+        group.startsWith("通知") -> 8
+        group.startsWith("控制中心") -> 9
+        group.startsWith("音量") -> 10
+        group.startsWith("锁屏插件") -> 11
+        group.startsWith("锁屏") -> 12
+        group.startsWith("壁纸") -> 13
+        group.startsWith("生物识别") -> 14
+        group.startsWith("全局面板") -> 15
+        group.startsWith("Metaball") -> 16
         group.startsWith("自动发现 · 外部") -> 19
         group.startsWith("自动发现") -> 20
         else -> 25
