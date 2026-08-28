@@ -29,6 +29,8 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
             "com.oplus.systemui.qs.media.QsMediaSpotLightHelper"
         const val QS_MEDIA_CLIP_SHAPE =
             "com.oplus.systemui.qs.media.QsMediaSpotLightHelper\$ClipShape"
+        const val SHARED_SPOTLIGHT =
+            "com.oplus.systemui.qs.base.spotlight.SharedSpotLightEffect"
         const val VOLUME_SETTINGS_SPOTLIGHT =
             "com.oplus.systemui.volume.utils.spotlight.OplusVolumeSettingsButtonSpotLightHelper"
         const val METABALL_LIGHT_RENDERER =
@@ -48,7 +50,11 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
 
     fun notificationSpotLightKinds(): List<String> = enumNames(NOTIFICATION_SPOTLIGHT_KIND)
 
-    fun qsMediaClipShapes(): List<String> = enumNames(QS_MEDIA_CLIP_SHAPE)
+    /**
+     * CAPSULE/CIRCLE are QsMediaSpotLightHelper shipping states. SHARED is a direct probe of the
+     * separate SharedSpotLightEffect static API discovered in the same SystemUI build.
+     */
+    fun qsMediaClipShapes(): List<String> = enumNames(QS_MEDIA_CLIP_SHAPE) + "SHARED"
 
     fun createNotificationSpotLight(kindName: String): Result<View> = runCatching {
         val delegate = load(NOTIFICATION_SPOTLIGHT)
@@ -61,19 +67,37 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
         host
     }
 
-    fun createQsMediaSpotLight(clipShapeName: String): Result<View> = runCatching {
-        val helperClass = load(QS_MEDIA_SPOTLIGHT)
-        val clipClass = load(QS_MEDIA_CLIP_SHAPE)
-        val clip = enumValue(QS_MEDIA_CLIP_SHAPE, clipShapeName)
+    fun createQsMediaSpotLight(clipShapeName: String): Result<View> {
+        if (clipShapeName == "SHARED") return createSharedSpotLightEffect()
+        return runCatching {
+            val helperClass = load(QS_MEDIA_SPOTLIGHT)
+            val clipClass = load(QS_MEDIA_CLIP_SHAPE)
+            val clip = enumValue(QS_MEDIA_CLIP_SHAPE, clipShapeName)
+            val host = EffectHostView(systemUiContext)
+            val ctor = helperClass.getDeclaredConstructor(View::class.java, clipClass).apply { isAccessible = true }
+            val helper = ctor.newInstance(host, clip)
+            invokeRequired(helper, "ensureDrawable")
+            invokeOptional(helper, "syncDrawableEnabledFromHost")
+            host.sizeEffect = { w, h -> invokeRequired(helper, "updateDrawableBounds", w, h) }
+            host.drawEffect = { canvas -> invokeRequired(helper, "drawSpotLightEffect", canvas) }
+            host.touchEffect = { event -> invokeRequired(helper, "handleMotionEvent", event) }
+            host.detachEffect = { invokeOptional(helper, "releaseDrawable") }
+            host
+        }
+    }
+
+    /**
+     * Directly exercises SharedSpotLightEffect's shipping static API. DEX in the current build
+     * exposes updateBounds(View,int,int), draw(View,Canvas), onTouchEvent(View,MotionEvent) and
+     * detach(View,String), so no business View or reconstructed spotlight shader is required.
+     */
+    fun createSharedSpotLightEffect(): Result<View> = runCatching {
+        val effect = load(SHARED_SPOTLIGHT)
         val host = EffectHostView(systemUiContext)
-        val ctor = helperClass.getDeclaredConstructor(View::class.java, clipClass).apply { isAccessible = true }
-        val helper = ctor.newInstance(host, clip)
-        invokeRequired(helper, "ensureDrawable")
-        invokeOptional(helper, "syncDrawableEnabledFromHost")
-        host.sizeEffect = { w, h -> invokeRequired(helper, "updateDrawableBounds", w, h) }
-        host.drawEffect = { canvas -> invokeRequired(helper, "drawSpotLightEffect", canvas) }
-        host.touchEffect = { event -> invokeRequired(helper, "handleMotionEvent", event) }
-        host.detachEffect = { invokeOptional(helper, "releaseDrawable") }
+        host.sizeEffect = { w, h -> invokeStaticRequired(effect, "updateBounds", host, w, h) }
+        host.drawEffect = { canvas -> invokeStaticRequired(effect, "draw", host, canvas) }
+        host.touchEffect = { event -> invokeStaticRequired(effect, "onTouchEvent", host, event) }
+        host.detachEffect = { invokeStaticOptional(effect, "detach", host, "AndroidLiquidGlass parity demo") }
         host
     }
 
@@ -129,6 +153,7 @@ internal class ColorOsSystemUiInteractiveEffectBridge(context: Context) {
         classStatus(NOTIFICATION_SPOTLIGHT_KIND),
         classStatus(QS_MEDIA_SPOTLIGHT),
         classStatus(QS_MEDIA_CLIP_SHAPE),
+        classStatus(SHARED_SPOTLIGHT),
         classStatus(VOLUME_SETTINGS_SPOTLIGHT),
         classStatus(METABALL_LIGHT_RENDERER),
         classStatus(SCENARIO_LIGHT_DRAWABLE),
