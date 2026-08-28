@@ -12,13 +12,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 
-/**
- * Unified visual host for ColorOsSystemUiExecutionRegistry routes.
- *
- * DIRECT_EXECUTABLE and GL_PIPELINE routes execute code/resources from the installed
- * com.android.systemui package. PARAMETER_EXECUTOR routes inspect the real vendor class and show
- * shipping constants/getters/signatures. HOST/SURFACE_CONTROL routes remain explicit boundaries.
- */
+/** Unified visual host for ColorOsSystemUiExecutionRegistry routes. */
 internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(context) {
     private val postEffect = runCatching { ColorOsSystemUiPostEffectBridge(context) }
     private val executable = runCatching { ColorOsSystemUiExecutableBridge(context) }
@@ -26,10 +20,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
     private val direct = runCatching { ColorOsSystemUiDirectViewBridge(context) }
     private val parameterAudit = runCatching { ColorOsSystemUiParameterAuditBridge(context) }
 
-    private val backgroundView = ImageView(context).apply {
-        scaleType = ImageView.ScaleType.CENTER_CROP
-    }
-
+    private val backgroundView = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
     private var currentKey: String? = null
     private var pendingApply = false
     private var wallpaper: Bitmap? = null
@@ -139,39 +130,30 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                 addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
                 postStatus("PASS — vendor parameter evidence ${snapshot.evidenceCount} entries · ${route.name}")
             }
-            .onFailure {
-                showBoundary("UNAVAILABLE — parameter audit: ${describe(it)}")
-            }
+            .onFailure { showBoundary("UNAVAILABLE — parameter audit: ${describe(it)}") }
     }
 
     private fun runDirect(route: ColorOsSystemUiExecutionRegistry.Route, bitmap: Bitmap) {
         val result: Result<View> = when (route) {
-            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_COMPOSER -> postEffect.mapCatching { bridge ->
-                val drawable = bridge.createPostEffectDrawable(
-                    bitmap = bitmap,
-                    width = width,
-                    height = height,
-                    options = ColorOsSystemUiPostEffectBridge.PostEffectOptions(
-                        cornerType = "G2",
-                        cornerRadiusPx = radiusPx,
-                        cornerWeight = 1f,
-                        optics = true,
-                        gradientStroke = true,
-                        innerShadow = true,
-                    ),
-                ).getOrThrow()
-                DrawableSurfaceView(context, drawable)
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_COMPOSER,
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_SHAPE,
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_OPTICS,
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_STROKE,
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_INNER_SHADOW -> postEffect.mapCatching { bridge ->
+                createPostEffectSurface(bridge, route, bitmap)
             }
 
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_METABALL -> executable.mapCatching { bridge ->
-                val drawable = bridge.createMetaBallPostEffectDrawable(
-                    bitmap = bitmap,
-                    width = width,
-                    height = height,
-                    radiusPx = radiusPx,
-                    phase = progress,
-                ).getOrThrow()
-                DrawableSurfaceView(context, drawable)
+                DrawableSurfaceView(
+                    context,
+                    bridge.createMetaBallPostEffectDrawable(
+                        bitmap = bitmap,
+                        width = width,
+                        height = height,
+                        radiusPx = radiusPx,
+                        phase = progress,
+                    ).getOrThrow(),
+                )
             }
 
             ColorOsSystemUiExecutionRegistry.Route.CHROMATIC_SHADER -> postEffect.mapCatching { bridge ->
@@ -195,47 +177,36 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             ColorOsSystemUiExecutionRegistry.Route.RAW_METABALL_SHADER -> executable.mapCatching { bridge ->
                 ShaderSurfaceView(context, bridge.createRawMetaballShader(bitmap, width, height, progress).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.QS_STROKE_SHADER -> executable.mapCatching { bridge ->
                 ShaderSurfaceView(context, bridge.createQsStrokeShader(width, height, radiusPx).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.VOLUME_STROKE_SHADER -> executable.mapCatching { bridge ->
                 ShaderSurfaceView(context, bridge.createVolumeStrokeShader(width, height, radiusPx).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.NOTIFICATION_STROKE_SHADER -> notificationStroke.mapCatching { bridge ->
                 ShaderSurfaceView(context, bridge.create(width, height, radiusPx).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.WALLPAPER_BLUR_DRAWABLE -> executable.mapCatching { bridge ->
                 DrawableSurfaceView(context, bridge.createWallpaperBlurDrawable(bitmap, 0x18FFFFFF).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.QS_PROGRESSIVE_BLUR_VIEW -> direct.mapCatching {
                 it.createQsProgressiveBlur(progress).getOrThrow()
             }
-
             ColorOsSystemUiExecutionRegistry.Route.NOTIFICATION_TILT_SHIFT_VIEW -> direct.mapCatching {
                 it.createNotificationTiltShift(width, height).getOrThrow()
             }
-
             ColorOsSystemUiExecutionRegistry.Route.KEYGUARD_GRADIENT_BLUR_VIEW -> direct.mapCatching {
                 it.createKeyguardGradientBlur(bitmap, progress).getOrThrow()
             }
-
             ColorOsSystemUiExecutionRegistry.Route.QS_MULTI_LIGHT_SHADER -> direct.mapCatching {
                 ShaderSurfaceView(context, it.createQsMultiLightShader(width, height, radiusPx).getOrThrow())
             }
-
             ColorOsSystemUiExecutionRegistry.Route.QS_BUSINESS_SEEKBAR -> direct.mapCatching {
                 it.createQsVerticalSeekBar((progress * 100).toInt()).getOrThrow()
             }
-
             ColorOsSystemUiExecutionRegistry.Route.VOLUME_BUSINESS_SEEKBAR -> direct.mapCatching {
                 it.createVolumeSeekBar((progress * 100).toInt()).getOrThrow()
             }
-
             else -> Result.failure(IllegalStateException("${route.name} is not a direct visual route"))
         }
 
@@ -243,9 +214,36 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             child.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             postStatus("PASS — ColorOS ${route.name} attached from installed SystemUI")
-        }.onFailure {
-            showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}")
+        }.onFailure { showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}") }
+    }
+
+    private fun createPostEffectSurface(
+        bridge: ColorOsSystemUiPostEffectBridge,
+        route: ColorOsSystemUiExecutionRegistry.Route,
+        bitmap: Bitmap,
+    ): View {
+        val modules = when (route) {
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_COMPOSER -> Triple(true, true, true)
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_OPTICS -> Triple(true, false, false)
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_STROKE -> Triple(false, true, false)
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_INNER_SHADOW -> Triple(false, false, true)
+            ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_SHAPE -> Triple(false, false, false)
+            else -> error("$route is not a PostEffect surface route")
         }
+        val drawable = bridge.createPostEffectDrawable(
+            bitmap = bitmap,
+            width = width,
+            height = height,
+            options = ColorOsSystemUiPostEffectBridge.PostEffectOptions(
+                cornerType = "G2",
+                cornerRadiusPx = radiusPx,
+                cornerWeight = 1f,
+                optics = modules.first,
+                gradientStroke = modules.second,
+                innerShadow = modules.third,
+            ),
+        ).getOrThrow()
+        return DrawableSurfaceView(context, drawable)
     }
 
     private fun runGl(bitmap: Bitmap) {
@@ -256,9 +254,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             }
             addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             postStatus("RUNNING — SystemUI GLES blur_down → gaussian H/V → blur_up → display")
-        }.onFailure {
-            showBoundary("UNAVAILABLE — SystemUI GL: ${describe(it)}")
-        }
+        }.onFailure { showBoundary("UNAVAILABLE — SystemUI GL: ${describe(it)}") }
     }
 
     private fun clearRouteChildren() {
