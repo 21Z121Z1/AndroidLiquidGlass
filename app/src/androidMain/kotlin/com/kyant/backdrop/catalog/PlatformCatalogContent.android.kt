@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -229,7 +228,12 @@ private fun ColorOsDialogDemo() = ColorOsDemoScaffold(
     subtitle = "A dialog-sized arbitrary mask is fed through the same native GlassEffectBuilder used by the new lock screen.",
 ) { wallpaper ->
     var open by remember { mutableStateOf(true) }
-    NativeGlassButton(wallpaper, if (open) "Hide dialog" else "Show dialog", Color.White.copy(alpha = 0.08f)) { open = !open }
+    NativeGlassButton(
+        wallpaper = wallpaper,
+        label = if (open) "Hide dialog" else "Show dialog",
+        overlayColor = Color.White.copy(alpha = 0.08f),
+        onClick = { open = !open },
+    )
     if (open) {
         NativeGlassSurface(
             wallpaper = wallpaper,
@@ -348,7 +352,12 @@ private fun ColorOsGlassPlaygroundDemo() = ColorOsDemoScaffold(
     NativeSliderRow("State mix", mix, wallpaper) { mix = it }
     NativeSliderRow("Mask color mix", mask, wallpaper) { mask = it }
     NativeSliderRow("Corner radius", radiusFraction, wallpaper) { radiusFraction = it }
-    NativeGlassButton(wallpaper, if (light) "Effect light: ON" else "Effect light: OFF", Color.White.copy(alpha = 0.06f)) { light = !light }
+    NativeGlassButton(
+        wallpaper = wallpaper,
+        label = if (light) "Effect light: ON" else "Effect light: OFF",
+        overlayColor = Color.White.copy(alpha = 0.06f),
+        onClick = { light = !light },
+    )
 }
 
 @Composable
@@ -524,13 +533,13 @@ private fun NativeGlassSurface(
                 host.onStatus = onStatus
                 host.configure(wallpaper, kind, radiusPx, text, glass, mix, mask, light)
             },
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.fillMaxSize(),
         )
         if (overlayColor.alpha > 0f && kind != NativeMaskKind.Text) {
             val shape = if (kind == NativeMaskKind.Circle) CircleShape else RoundedCornerShape(radius)
-            Box(Modifier.matchParentSize().clip(shape).background(overlayColor))
+            Box(Modifier.fillMaxSize().clip(shape).background(overlayColor))
         }
-        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center, content = content)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center, content = content)
     }
 }
 
@@ -549,9 +558,9 @@ private fun NativeMaterialSurface(
                 host.onStatus = onStatus
                 host.configure(mode, fraction)
             },
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier.fillMaxSize(),
         )
-        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center, content = content)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center, content = content)
     }
 }
 
@@ -597,7 +606,6 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
         }
         markerColor = bridge.locationColor().getOrNull()
         paint.color = markerColor ?: AndroidColor.TRANSPARENT
-        viewTreeObserver.addOnScrollChangedListener(scrollListener)
     }
 
     fun configure(
@@ -622,6 +630,13 @@ private class ColorOsGlassHostView(context: Context) : View(context) {
         paint.color = markerColor ?: bridge.locationColor().getOrNull()?.also { markerColor = it } ?: AndroidColor.TRANSPARENT
         invalidateOutline()
         invalidate()
+        applyIfReady()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
+        lastKey = null
         applyIfReady()
     }
 
