@@ -25,6 +25,23 @@ internal object ColorOsSystemUiExecutionRegistry {
         COUI_PROGRESSIVE_BLUR(Kind.DIRECT_EXECUTABLE, "ColorOsMaterialBridge.applyGradientBlur()/updateGradientBlur()"),
         KEYGUARD_GLASS_BUILDER(Kind.DIRECT_EXECUTABLE, "ColorOsClockGlassSurfaceView -> personality-clocks GlassEffectBuilder -> real RenderEffect"),
 
+        SYSTEMUI_NOTIFICATION_SPOTLIGHT(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiInteractiveEffectBridge.createNotificationSpotLight(kind) -> NotificationSpotLightDelegate",
+        ),
+        SYSTEMUI_QS_MEDIA_SPOTLIGHT(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiInteractiveEffectBridge.createQsMediaSpotLight(clipShape) -> QsMediaSpotLightHelper",
+        ),
+        SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiInteractiveEffectBridge.createVolumeSettingsButtonSpotLight()",
+        ),
+        SYSTEMUI_SCENARIO_METABALL_LIGHT(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiInteractiveEffectBridge.createScenarioMetaballLight() -> ScenarioLightBackgroundDrawable -> MetaballLightRenderer",
+        ),
+
         CHROMATIC_SHADER(Kind.DIRECT_EXECUTABLE, "ColorOsSystemUiPostEffectBridge.applyChromatic()"),
         BAR_GLOW_SHADER(Kind.DIRECT_EXECUTABLE, "ColorOsSystemUiExecutableBridge.applyBarGlow()"),
         RAW_METABALL_SHADER(Kind.DIRECT_EXECUTABLE, "ColorOsSystemUiExecutableBridge.createRawMetaballShader()"),
@@ -78,6 +95,14 @@ internal object ColorOsSystemUiExecutionRegistry {
                     Route.BLUR_MIX_RECIPE_EXECUTOR
                 }
             }
+            impl.startsWith(ColorOsSystemUiInteractiveRecipeInventory.NOTIFICATION_SPOTLIGHT_PREFIX) ->
+                return Route.SYSTEMUI_NOTIFICATION_SPOTLIGHT
+            impl.startsWith(ColorOsSystemUiInteractiveRecipeInventory.QS_MEDIA_SPOTLIGHT_PREFIX) ->
+                return Route.SYSTEMUI_QS_MEDIA_SPOTLIGHT
+            impl == ColorOsSystemUiInteractiveRecipeInventory.VOLUME_SETTINGS_SPOTLIGHT ->
+                return Route.SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT
+            impl == ColorOsSystemUiInteractiveRecipeInventory.SCENARIO_METABALL_LIGHT ->
+                return Route.SYSTEMUI_SCENARIO_METABALL_LIGHT
         }
 
         when (impl) {
@@ -93,6 +118,11 @@ internal object ColorOsSystemUiExecutionRegistry {
             "com.oplus.systemui.qs.media.ProgressiveBlurOverlay" -> return Route.QS_PROGRESSIVE_BLUR_VIEW
             "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer" -> return Route.NOTIFICATION_TILT_SHIFT_VIEW
             "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams" -> return Route.QS_MULTI_LIGHT_SHADER
+            ColorOsSystemUiInteractiveEffectBridge.NOTIFICATION_SPOTLIGHT -> return Route.SYSTEMUI_NOTIFICATION_SPOTLIGHT
+            ColorOsSystemUiInteractiveEffectBridge.QS_MEDIA_SPOTLIGHT -> return Route.SYSTEMUI_QS_MEDIA_SPOTLIGHT
+            ColorOsSystemUiInteractiveEffectBridge.VOLUME_SETTINGS_SPOTLIGHT -> return Route.SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT
+            ColorOsSystemUiInteractiveEffectBridge.METABALL_LIGHT_RENDERER,
+            ColorOsSystemUiInteractiveEffectBridge.SCENARIO_LIGHT_DRAWABLE -> return Route.SYSTEMUI_SCENARIO_METABALL_LIGHT
         }
 
         if (impl.startsWith("com.oplusos.systemui.common.adapter.MixColor")) return Route.SHIPPING_PRESET_BROWSER
@@ -171,7 +201,13 @@ internal object ColorOsSystemUiExecutionRegistry {
             return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) Route.MATERIAL_PARAMETER_AUDIT else Route.SYSTEMUI_HOST
         }
         if (impl.startsWith("com.oplusos.systemui.common.shader.") && "metaball" in lower) {
-            return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) Route.MATERIAL_PARAMETER_AUDIT else Route.SYSTEMUI_HOST
+            return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW) {
+                Route.SYSTEMUI_SCENARIO_METABALL_LIGHT
+            } else if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) {
+                Route.MATERIAL_PARAMETER_AUDIT
+            } else {
+                Route.SYSTEMUI_HOST
+            }
         }
 
         if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) return Route.MATERIAL_PARAMETER_AUDIT
