@@ -40,7 +40,8 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.catalog.coloros.ColorOsKyantParityContract
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiAuditScope
-import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiLiquidGlassCatalog
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiCompleteInventory
+import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiExecutionRegistry
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
@@ -54,9 +55,9 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 
 /**
- * Executable Kyant reference browser for every CORE_MATERIAL implementation discovered in the
- * installed SystemUI package. Existing ColorOS labs own direct vendor execution; this page makes
- * the Kyant side equally explicit and executable for every core row.
+ * Executable Kyant reference browser for every CORE_MATERIAL implementation in the strict
+ * SystemUI inventory. The selected row shows both the real ColorOS execution route and the Kyant
+ * recipe, so the two sides cannot silently drift into separate hand-maintained inventories.
  */
 @Composable
 fun SystemUiKyantParityOverlay() {
@@ -72,8 +73,8 @@ fun SystemUiKyantParityOverlay() {
     }
 
     val context = LocalContext.current
-    val catalog = remember(context) { ColorOsSystemUiLiquidGlassCatalog(context) }
-    val mappings = remember(catalog) { catalog.mappings() }
+    val inventory = remember(context) { ColorOsSystemUiCompleteInventory(context) }
+    val mappings = remember(inventory) { inventory.mappings() }
     val core = remember(mappings) {
         ColorOsSystemUiAuditScope.classifyAll(mappings)
             .filter { it.scope == ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL }
@@ -117,7 +118,7 @@ fun SystemUiKyantParityOverlay() {
             }
 
             BasicText(
-                "页面直接消费 CORE_MATERIAL 的强类型 parity contract。每个 SystemUI 核心项必须绑定到实际 Kyant API recipe；缺少契约的项既不能生成参考样本，也会让核心覆盖闸门失败。",
+                "同一份严格清单同时驱动两边：ColorOS 项必须有明确 bridge/GL/宿主路由，Kyant 项必须有强类型 API recipe。缺任何一边都会让闸门失败。已证明的业务 View 还会被强制纳入，即使其类名不命中高召回关键词。",
                 style = parityInfo(),
             )
 
@@ -126,6 +127,8 @@ fun SystemUiKyantParityOverlay() {
             selected?.let { item ->
                 val row = item.mapping
                 val contract = item.parityContract
+                val route = item.executionRoute
+                val effective = ColorOsSystemUiAuditScope.effectiveExecution(row)
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -135,12 +138,19 @@ fun SystemUiKyantParityOverlay() {
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     BasicText(row.systemUiImplementation, style = TextStyle(Color.White, 12.sp, FontWeight.SemiBold))
-                    BasicText(
-                        "ColorOS execution · ${ColorOsSystemUiAuditScope.effectiveExecution(row)} · ${row.status}",
-                        style = parityDiag(),
-                    )
+                    BasicText("ColorOS mode · $effective · ${row.status}", style = parityDiag())
+                    if (route == null) {
+                        BasicText("ColorOS route · MISSING_ROUTE", style = TextStyle(Color(0xFFFF8A80), 10.sp, FontWeight.Bold))
+                    } else {
+                        val compatible = ColorOsSystemUiExecutionRegistry.routeIsCompatible(route, effective)
+                        BasicText(
+                            "ColorOS route · ${route.kind} · ${route.name}${if (compatible) "" else " · INCOMPATIBLE"}",
+                            style = TextStyle(if (compatible) Color(0xFF90CAF9) else Color(0xFFFFB74D), 10.sp, FontWeight.Medium),
+                        )
+                        BasicText(route.implementation, style = parityDiag())
+                    }
                     if (contract == null) {
-                        BasicText("MISSING_CONTRACT", style = TextStyle(Color(0xFFFF8A80), 11.sp, FontWeight.Bold))
+                        BasicText("Kyant · MISSING_CONTRACT", style = TextStyle(Color(0xFFFF8A80), 11.sp, FontWeight.Bold))
                     } else {
                         BasicText(
                             "Kyant parity · ${contract.kind} · ${contract.recipe}",
@@ -170,6 +180,7 @@ fun SystemUiKyantParityOverlay() {
             core.forEachIndexed { index, item ->
                 val row = item.mapping
                 val contract = item.parityContract
+                val route = item.executionRoute
                 val selectedRow = index == safeIndex
                 Column(
                     Modifier
@@ -184,10 +195,14 @@ fun SystemUiKyantParityOverlay() {
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     BasicText(row.systemUiImplementation, style = TextStyle(Color.White, 9.sp, FontWeight.Medium))
+                    BasicText(
+                        route?.let { "ColorOS ${it.kind} · ${it.name}" } ?: "ColorOS MISSING_ROUTE",
+                        style = TextStyle(if (route != null) Color(0xFF90CAF9) else Color(0xFFFF8A80), 9.sp),
+                    )
                     if (contract == null) {
-                        BasicText("MISSING_CONTRACT", style = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.Bold))
+                        BasicText("Kyant MISSING_CONTRACT", style = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.Bold))
                     } else {
-                        BasicText("${contract.kind} · ${contract.recipe}", style = TextStyle(Color(0xFFB9E6C2), 9.sp))
+                        BasicText("Kyant ${contract.kind} · ${contract.recipe}", style = TextStyle(Color(0xFFB9E6C2), 9.sp))
                         BasicText(contract.primitives.joinToString(" + ") { it.name }, style = parityDiag())
                     }
                 }
@@ -209,8 +224,11 @@ private fun ParityGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
     ) {
         val gateColor = if (summary.coreComplete) Color(0xFF93E7A6) else Color(0xFFFF8A80)
         BasicText(
-            if (summary.coreComplete) "PARITY GATE PASS · ${summary.coreContracted}/${summary.core}" else
-                "PARITY GATE FAIL · missing ${summary.coreContractMissing}",
+            if (summary.coreComplete) {
+                "PARITY GATE PASS · ${summary.coreContracted}/${summary.core} contracted · ${summary.coreRouted}/${summary.core} routed"
+            } else {
+                "PARITY GATE FAIL · contract ${summary.coreContractMissing} · route ${summary.coreRouteMissing} · incompatible ${summary.coreRouteIncompatible}"
+            },
             style = TextStyle(gateColor, 15.sp, FontWeight.SemiBold),
         )
         BasicText(
@@ -220,6 +238,12 @@ private fun ParityGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
         BasicText("direct ${summary.coreDirect} · host-bound ${summary.coreHostBound}", style = parityDiag())
         summary.missingContracts.forEach {
             BasicText("MISSING_CONTRACT · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
+        }
+        summary.missingRoutes.forEach {
+            BasicText("MISSING_ROUTE · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
+        }
+        summary.incompatibleRoutes.forEach {
+            BasicText("INCOMPATIBLE_ROUTE · $it", style = TextStyle(Color(0xFFFFB74D), 9.sp))
         }
     }
 }
