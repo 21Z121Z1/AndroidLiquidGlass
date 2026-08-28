@@ -9,6 +9,8 @@ internal object ColorOsSystemUiParityResolver {
         val impl = mapping.systemUiImplementation
         val lower = impl.lowercase()
 
+        couiPresetContract(impl)?.let { return it }
+
         when (impl) {
             "com.oplus.graphics.OplusRenderEffect" -> return contract(
                 ColorOsKyantParityContract.Kind.MECHANISM,
@@ -206,6 +208,48 @@ internal object ColorOsSystemUiParityResolver {
         )
 
         return ColorOsKyantParityContract.resolve(mapping)
+    }
+
+    private fun couiPresetContract(impl: String): ColorOsKyantParityContract.Contract? = when {
+        impl.startsWith(ColorOsCouiPresetInventory.BLUR_PREFIX) -> contract(
+            ColorOsKyantParityContract.Kind.COMPOSITE,
+            ColorOsKyantParityContract.Recipe.BLUR_COLOR_MIX,
+            ColorOsKyantParityContract.Primitive.DRAW_PLAIN_BACKDROP,
+            ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+            ColorOsKyantParityContract.Primitive.BLUR,
+            ColorOsKyantParityContract.Primitive.VIBRANCY,
+            ColorOsKyantParityContract.Primitive.COLOR_CONTROLS,
+            ColorOsKyantParityContract.Primitive.SURFACE_TINT,
+            rationale = "该行是当前固件一个精确 BlurEffectType preset；Kyant 用 blur + vibrancy/colorControls + surface tint 对照其组成机制，参数不硬编码复刻。",
+        )
+        impl.startsWith(ColorOsCouiPresetInventory.STROKE_PREFIX) -> contract(
+            ColorOsKyantParityContract.Kind.COMPOSITE,
+            ColorOsKyantParityContract.Recipe.STROKE,
+            ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+            ColorOsKyantParityContract.Primitive.SHAPE_SDF,
+            ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+            ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+            rationale = "该行是当前固件一个精确 StrokeEffectType preset；Kyant 对照 Shape/SDF + Highlight + Shadow，不声称 edge/shadow 参数曲线一致。",
+        )
+        impl.startsWith(ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX) -> contract(
+            ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+            ColorOsKyantParityContract.Recipe.SPOTLIGHT,
+            ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+            ColorOsKyantParityContract.Primitive.INTERACTIVE_HIGHLIGHT,
+            rationale = "该行是当前固件一个精确 SpotLightType preset；ColorOS 侧执行真实 hotspot/MotionEvent，Kyant 只能以交互 Highlight 做最近机制参考。",
+        )
+        impl.startsWith(ColorOsCouiPresetInventory.TOOLBAR_PREFIX) -> contract(
+            ColorOsKyantParityContract.Kind.COMPOSITE,
+            ColorOsKyantParityContract.Recipe.MATERIAL_SURFACE,
+            ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+            ColorOsKyantParityContract.Primitive.BLUR,
+            ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+            ColorOsKyantParityContract.Primitive.INTERACTIVE_HIGHLIGHT,
+            ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+            ColorOsKyantParityContract.Primitive.SURFACE_TINT,
+            rationale = "该行是当前固件一个精确 Toolbar ViewCategory；ColorOS 侧在该 category 上运行真实 delegate，Kyant 以 blur/stroke/interactive highlight/shadow 组合对照。",
+        )
+        else -> null
     }
 
     private fun externalDiscoveredContract(
