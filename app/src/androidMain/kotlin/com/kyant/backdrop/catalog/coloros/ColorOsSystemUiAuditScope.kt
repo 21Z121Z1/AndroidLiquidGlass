@@ -22,6 +22,12 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
     )
 
+    private val FRAMEWORK_PRIMITIVES = mapOf(
+        "com.oplus.graphics.OplusRenderEffect" to "Oplus 框架 RenderEffect/渐进模糊原语",
+        "com.oplus.view.OplusViewBackgroundRenderEffect" to "Oplus View 后景 RenderEffect 挂载原语",
+        "com.oplus.view.material.OplusMaterialUtil" to "Oplus 框架 edge/shadow/caustic 材质原语",
+    )
+
     data class ScopedSummary(
         val total: Int,
         val core: Int,
@@ -79,6 +85,7 @@ internal object ColorOsSystemUiAuditScope {
         val lower = impl.lowercase()
 
         val coreReason = when {
+            impl in FRAMEWORK_PRIMITIVES -> FRAMEWORK_PRIMITIVES.getValue(impl)
             impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
             impl.startsWith("com.oplusos.systemui.common.blurability.") -> "ColorOS SystemUI blurability 核心"
             impl.startsWith("com.oplusos.systemui.common.adapter.MixColor") -> "SystemUI shipping 材质预设适配器"
@@ -148,12 +155,15 @@ internal object ColorOsSystemUiAuditScope {
 
     fun effectiveExecution(
         mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
-    ): ColorOsSystemUiLiquidGlassCatalog.ExecutionMode =
-        if (mapping.systemUiImplementation in DIRECT_EXECUTION_OVERRIDES) {
-            ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW
-        } else {
-            mapping.executionMode
+    ): ColorOsSystemUiLiquidGlassCatalog.ExecutionMode {
+        val impl = mapping.systemUiImplementation
+        return when {
+            impl in DIRECT_EXECUTION_OVERRIDES -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW
+            mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE &&
+                !isExecutableGlResource(impl) -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
+            else -> mapping.executionMode
         }
+    }
 
     fun classifyAll(rows: List<ColorOsSystemUiLiquidGlassCatalog.Mapping>): List<Classified> = rows.map(::classify)
 
@@ -219,6 +229,12 @@ internal object ColorOsSystemUiAuditScope {
     private fun isTextMapped(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Boolean =
         mapping.kyantCounterpart.isNotBlank() &&
             !mapping.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
+
+    private fun isExecutableGlResource(impl: String): Boolean {
+        if (!impl.startsWith("assets/")) return false
+        val lower = impl.lowercase()
+        return listOf("blur_down", "blur_up", "gaussian_blur", "display_").any(lower::contains)
+    }
 
     private fun isCoreShaderAsset(impl: String, lower: String): Boolean {
         if (!impl.startsWith("assets/") && !impl.startsWith("res/raw/")) return false
