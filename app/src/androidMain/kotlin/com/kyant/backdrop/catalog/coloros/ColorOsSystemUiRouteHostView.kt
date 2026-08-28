@@ -128,11 +128,8 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             val exactId = implementation
                 .takeIf { it.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX) }
                 ?.removePrefix(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)
-            val matching = if (exactId != null) {
-                all.filter { it.id == exactId }
-            } else {
-                all.filter { it.adapterClass == implementation }
-            }
+            val matching = if (exactId != null) all.filter { it.id == exactId }
+            else all.filter { it.adapterClass == implementation }
             require(matching.isNotEmpty()) {
                 if (exactId != null) "shipping preset id $exactId not found"
                 else "no executable shipping preset binder for $implementation"
@@ -153,9 +150,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             val exact = if (implementation.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)) {
                 " [exact recipe row]"
-            } else {
-                " [adapter browser]"
-            }
+            } else " [adapter browser]"
             postStatus("PASS — shipping preset ${preset.family}/${preset.methodName}$exact from ${preset.adapterClass}")
         }.onFailure {
             runParameterAudit(
@@ -178,9 +173,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             } else {
                 val wantedSource = if (implementation.contains("notification", ignoreCase = true)) {
                     ColorOsSystemUiBlurMixBridge.Source.NOTIFICATION
-                } else {
-                    ColorOsSystemUiBlurMixBridge.Source.QS
-                }
+                } else ColorOsSystemUiBlurMixBridge.Source.QS
                 val directRecipes = all.filter {
                     it.source == wantedSource &&
                         it.executionHint == ColorOsSystemUiBlurMixBridge.Execution.DIRECT_SHADER
@@ -205,9 +198,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             val exact = if (implementation.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX)) {
                 " [exact recipe row]"
-            } else {
-                " [provider browser]"
-            }
+            } else " [provider browser]"
             postStatus("PASS — shipping blur/mix ${recipe.label} · ${recipe.source}$exact")
         }.onFailure {
             runParameterAudit(
@@ -294,11 +285,11 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                     ?: error("QsMediaSpotLightHelper.ClipShape has no values")
                 bridge.createQsMediaSpotLight(shape).getOrThrow()
             }
-            ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT -> interactive.mapCatching { bridge ->
-                bridge.createVolumeSettingsButtonSpotLight().getOrThrow()
+            ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT -> interactive.mapCatching {
+                it.createVolumeSettingsButtonSpotLight().getOrThrow()
             }
-            ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_SCENARIO_METABALL_LIGHT -> interactive.mapCatching { bridge ->
-                bridge.createScenarioMetaballLight().getOrThrow()
+            ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_SCENARIO_METABALL_LIGHT -> interactive.mapCatching {
+                it.createScenarioMetaballLight().getOrThrow()
             }
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_COMPOSER,
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_SHAPE,
@@ -367,15 +358,15 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
 
         result.onSuccess { child ->
             child.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-            val detail = when (route) {
-                ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_NOTIFICATION_SPOTLIGHT,
-                ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_QS_MEDIA_SPOTLIGHT,
-                ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_VOLUME_SETTINGS_SPOTLIGHT -> " · touch/drag this card"
-                ColorOsSystemUiExecutionRegistry.Route.SYSTEMUI_SCENARIO_METABALL_LIGHT -> " · shipping animated light drawable"
-                else -> ""
+            val interactiveHost = child as? ColorOsSystemUiInteractiveEffectBridge.EffectHostView
+            if (interactiveHost != null) {
+                interactiveHost.onRuntimeStatus = { postStatus(it) }
+                addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+                postStatus("RUNNING — ${route.name} attached; waiting for first real SystemUI draw")
+            } else {
+                addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+                postStatus("PASS — ColorOS ${route.name} attached from installed SystemUI")
             }
-            postStatus("PASS — ColorOS ${route.name} attached from installed SystemUI$detail")
         }.onFailure { showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}") }
     }
 
