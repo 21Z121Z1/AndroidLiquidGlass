@@ -9,6 +9,13 @@ package com.kyant.backdrop.catalog.coloros
 internal object ColorOsSystemUiAuditScope {
     enum class Scope { CORE_MATERIAL, ADJACENT_GRAPHICS }
 
+    private val DIRECT_EXECUTION_OVERRIDES = setOf(
+        "com.oplus.systemui.qs.media.ProgressiveBlurOverlay",
+        "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer",
+        "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView",
+        "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams",
+    )
+
     data class ScopedSummary(
         val total: Int,
         val core: Int,
@@ -41,6 +48,7 @@ internal object ColorOsSystemUiAuditScope {
             impl.startsWith("com.oplusos.systemui.common.adapter.MixColor") -> "SystemUI shipping 材质预设适配器"
             impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider" -> "QS shipping blur/mix 配方入口"
             impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper" -> "SystemUI shader blend 参数更新器"
+            impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView" -> "锁屏渐变模糊遮罩；材质核心但不是折射"
             ".notification.blur." in impl -> "通知材质 blur/mix 子系统"
             ".notification.material." in impl -> "通知材质子系统"
             ".notification.lockscreen.capsule." in impl &&
@@ -78,6 +86,15 @@ internal object ColorOsSystemUiAuditScope {
         }
     }
 
+    fun effectiveExecution(
+        mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
+    ): ColorOsSystemUiLiquidGlassCatalog.ExecutionMode =
+        if (mapping.systemUiImplementation in DIRECT_EXECUTION_OVERRIDES) {
+            ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW
+        } else {
+            mapping.executionMode
+        }
+
     fun classifyAll(
         rows: List<ColorOsSystemUiLiquidGlassCatalog.Mapping>,
     ): List<Classified> = rows.map(::classify)
@@ -96,12 +113,14 @@ internal object ColorOsSystemUiAuditScope {
             coreUnmapped = core.size - coreMapped,
             coreAvailable = core.count { it.mapping.status.startsWith("available") },
             coreDirect = core.count {
-                it.mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW ||
-                    it.mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE
+                val mode = effectiveExecution(it.mapping)
+                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW ||
+                    mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE
             },
             coreHostBound = core.count {
-                it.mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST ||
-                    it.mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL
+                val mode = effectiveExecution(it.mapping)
+                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST ||
+                    mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL
             },
             adjacentMapped = adjacentMapped,
         )
