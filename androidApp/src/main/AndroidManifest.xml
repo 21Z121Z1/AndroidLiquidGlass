@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <queries>
+        <package android:name="com.android.systemui" />
         <package android:name="com.oplus.uxdesign" />
         <package android:name="com.oplus.keyguard.personality.clocks" />
     </queries>
