@@ -22,6 +22,12 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
     )
 
+    private val PARAMETER_ONLY_OVERRIDES = setOf(
+        "com.oplus.posteffect.agsl.ShaderBlendParam",
+        "com.oplus.posteffect.ForegroundBlurParam",
+        "com.oplus.posteffect.params.CustomClip",
+    )
+
     private val FRAMEWORK_PRIMITIVES = mapOf(
         "com.oplus.graphics.OplusRenderEffect" to "Oplus 框架 RenderEffect/渐进模糊原语",
         "com.oplus.view.OplusViewBackgroundRenderEffect" to "Oplus View 后景 RenderEffect 挂载原语",
@@ -93,21 +99,14 @@ internal object ColorOsSystemUiAuditScope {
             impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper" -> "SystemUI shader blend 参数更新器"
             impl.startsWith("com.oplusos.systemui.common.util.") &&
                 listOf("blur", "stroke", "material").any(lower::contains) -> "SystemUI 公共材质参数/模糊工具"
-
             impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> "QS 真实业务 View；onDraw 进入 QsSeekBarBlurManager"
             impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 VolumeBarMaterialHost/StrokeRenderer"
-
             impl.startsWith("com.oplus.systemui.notification.") &&
-                listOf("material", "blur", "stroke", "spotlight", "metaball", "optic").any(lower::contains) ->
-                "通知完整材质子系统"
-
+                listOf("material", "blur", "stroke", "spotlight", "metaball", "optic").any(lower::contains) -> "通知完整材质子系统"
             impl.startsWith("com.oplus.systemui.keyguard.") &&
-                listOf("material", "gradientmask", "multilayerblur").any(lower::contains) ->
-                "锁屏材质/渐变模糊子系统"
-
+                listOf("material", "gradientmask", "multilayerblur").any(lower::contains) -> "锁屏材质/渐变模糊子系统"
             impl.startsWith("com.oplus.systemui.blur.") -> "SystemUI Oplus 模糊/颜色基础设施"
             "oplusqsdialogblur" in lower -> "QS 对话框模糊背景"
-
             ".qs." in impl && listOf(
                 "blur", "material", "spotlight", "stroke", "metaball", "multilight", "progressive",
             ).any(lower::contains) -> "控制中心/QS 材质子系统"
@@ -153,12 +152,11 @@ internal object ColorOsSystemUiAuditScope {
         )
     }
 
-    fun effectiveExecution(
-        mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
-    ): ColorOsSystemUiLiquidGlassCatalog.ExecutionMode {
+    fun effectiveExecution(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): ColorOsSystemUiLiquidGlassCatalog.ExecutionMode {
         val impl = mapping.systemUiImplementation
         return when {
             impl in DIRECT_EXECUTION_OVERRIDES -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW
+            impl in PARAMETER_ONLY_OVERRIDES -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
             mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE &&
                 !isExecutableGlResource(impl) -> ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY
             else -> mapping.executionMode
@@ -200,13 +198,11 @@ internal object ColorOsSystemUiAuditScope {
             coreAvailable = core.count { it.mapping.status.startsWith("available") },
             coreDirect = core.count {
                 val mode = effectiveExecution(it.mapping)
-                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW ||
-                    mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE
+                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW || mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE
             },
             coreHostBound = core.count {
                 val mode = effectiveExecution(it.mapping)
-                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST ||
-                    mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL
+                mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST || mode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL
             },
             parityMechanism = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.MECHANISM },
             parityComposite = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.COMPOSITE },
@@ -227,8 +223,7 @@ internal object ColorOsSystemUiAuditScope {
     }
 
     private fun isTextMapped(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Boolean =
-        mapping.kyantCounterpart.isNotBlank() &&
-            !mapping.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
+        mapping.kyantCounterpart.isNotBlank() && !mapping.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
 
     private fun isExecutableGlResource(impl: String): Boolean {
         if (!impl.startsWith("assets/")) return false
@@ -239,17 +234,8 @@ internal object ColorOsSystemUiAuditScope {
     private fun isCoreShaderAsset(impl: String, lower: String): Boolean {
         if (!impl.startsWith("assets/") && !impl.startsWith("res/raw/")) return false
         return listOf(
-            "chromatic",
-            "barglow",
-            "metaball",
-            "blur_down",
-            "blur_up",
-            "gaussian_blur",
-            "display_fragment",
-            "display_vertex",
-            "stroke",
-            "optic",
-            "material",
+            "chromatic", "barglow", "metaball", "blur_down", "blur_up", "gaussian_blur",
+            "display_fragment", "display_vertex", "stroke", "optic", "material",
         ).any(lower::contains)
     }
 }
