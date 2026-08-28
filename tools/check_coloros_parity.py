@@ -13,6 +13,8 @@ FILES = {
     "resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParityResolver.kt",
     "registry": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiExecutionRegistry.kt",
     "route_host": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiRouteHostView.kt",
+    "clock_surface": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsClockGlassSurfaceView.kt",
+    "material_bridge": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsMaterialBridge.kt",
     "contract": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsKyantParityContract.kt",
     "parity_ui": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/SystemUiKyantParityOverlay.android.kt",
     "gl": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiGlBlurView.kt",
@@ -53,6 +55,27 @@ for primitive in framework_primitives:
     require("scope", primitive, "framework primitive must participate in CORE_MATERIAL gate")
     require("resolver", primitive, "framework primitive must have a concrete Kyant contract")
 
+cross_package_visual_primitives = [
+    "com.coui.appcompat.COUIMaterialBlurEffect",
+    "com.coui.appcompat.COUIMaterialStrokeEffect",
+    "com.coui.appcompat.spotlight.COUISpotLightEffect",
+    "com.coui.appcompat.toolbar.ToolbarMaterialEffectDelegate",
+    "com.coui.appcompat.toolbar.AppBarBlurHelper",
+    "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder",
+]
+for primitive in cross_package_visual_primitives:
+    require("inventory", primitive, "SystemUI-consumed cross-package visual primitive must be in strict inventory")
+    require("scope", primitive, "cross-package visual primitive must participate in CORE_MATERIAL gate")
+    require("resolver", primitive, "cross-package visual primitive must have a concrete Kyant contract")
+
+require("material_bridge", "fun applyBlur", "COUI blur route must call the installed vendor bridge")
+require("material_bridge", "fun applyStroke", "COUI stroke route must call the installed vendor bridge")
+require("material_bridge", "fun applySpotLight", "COUI spotlight route must call the installed vendor bridge")
+require("material_bridge", "fun applyToolbarStack", "COUI toolbar stack route must call the installed vendor bridge")
+require("material_bridge", "fun applyGradientBlur", "COUI progressive blur route must call the installed vendor bridge")
+require("clock_surface", "bridge.locationColor()", "glass surface must use the vendor GlassRegion marker")
+require("clock_surface", "bridge.apply(this, bg, glass, mix, mask, light)", "glass surface must attach the real vendor RenderEffect")
+
 # Each visually executable route must have both a registry entry and an implementation in the
 # unified ColorOS A/B host. PostEffect modules are deliberately isolated rather than sharing one
 # all-effects sample.
@@ -63,6 +86,12 @@ direct_routes = [
     "POST_EFFECT_STROKE",
     "POST_EFFECT_INNER_SHADOW",
     "POST_EFFECT_METABALL",
+    "COUI_MATERIAL_BLUR",
+    "COUI_MATERIAL_STROKE",
+    "COUI_SPOTLIGHT",
+    "COUI_TOOLBAR_STACK",
+    "COUI_PROGRESSIVE_BLUR",
+    "KEYGUARD_GLASS_BUILDER",
     "CHROMATIC_SHADER",
     "BAR_GLOW_SHADER",
     "RAW_METABALL_SHADER",
@@ -131,6 +160,7 @@ if errors:
 print("ColorOS parity guard: PASS")
 print(f" - proven strict entries: {len(proven_entries)}")
 print(f" - framework primitives: {len(framework_primitives)}")
+print(f" - cross-package visual primitives: {len(cross_package_visual_primitives)}")
 print(f" - direct routes: {len(direct_routes)}")
 print(f" - Kyant recipes: {len(recipe_names)}")
 print(f" - SystemUI GL assets: {len(gl_assets)}")
