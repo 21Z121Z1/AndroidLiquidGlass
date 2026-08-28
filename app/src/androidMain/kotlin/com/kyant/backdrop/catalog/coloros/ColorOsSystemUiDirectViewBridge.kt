@@ -21,6 +21,8 @@ internal class ColorOsSystemUiDirectViewBridge(context: Context) {
         private const val NOTIFICATION_TILT_SHIFT = "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer"
         private const val KEYGUARD_GRADIENT_BLUR = "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView"
         private const val QS_MULTI_LIGHT = "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams"
+        private const val QS_VERTICAL_SEEKBAR = "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar"
+        private const val VOLUME_SEEKBAR = "com.oplus.systemui.volume.OplusVolumeSeekBar"
     }
 
     @Suppress("DEPRECATION")
@@ -101,11 +103,56 @@ internal class ColorOsSystemUiDirectViewBridge(context: Context) {
         shader
     }
 
+    /**
+     * Runs the real control-center vertical seekbar. Its own onDraw() calls QsSeekBarBlurManager,
+     * so this exercises the shipping seekbar blur/stroke/material path rather than a standalone
+     * comparison shader.
+     */
+    fun createQsVerticalSeekBar(progress: Int = 65): Result<View> = runCatching {
+        val view = constructView(QS_VERTICAL_SEEKBAR)
+        invokeOptional(view, "setSupportStroke", true)
+        invokeOptional(view, "setMirrorBlurScaleValue", 1f)
+        invokeOptional(view, "setProgress", progress.coerceIn(0, 100), false)
+        view
+    }
+
+    fun updateQsVerticalSeekBar(view: View, progress: Int): Result<Unit> = runCatching {
+        require(view.javaClass.name == QS_VERTICAL_SEEKBAR)
+        invokeOptional(view, "setSupportStroke", true)
+        invokeOptional(view, "setProgress", progress.coerceIn(0, 100), false)
+        view.invalidate()
+    }
+
+    /**
+     * Runs the actual volume seekbar business View. Its constructor creates
+     * OplusVolumeBarMaterialHost, which in turn creates OplusVolumeStrokeRenderer; therefore a
+     * successful draw covers the integrated volume capsule geometry + material host + stroke
+     * renderer path.
+     */
+    fun createVolumeSeekBar(progress: Int = 65): Result<View> = runCatching {
+        val view = constructView(VOLUME_SEEKBAR)
+        invokeOptional(view, "setMax", 100)
+        invokeOptional(view, "setProgress", progress.coerceIn(0, 100))
+        invokeOptional(view, "refreshSpotLightEnableState")
+        view
+    }
+
+    fun updateVolumeSeekBar(view: View, progress: Int): Result<Unit> = runCatching {
+        require(view.javaClass.name == VOLUME_SEEKBAR)
+        invokeOptional(view, "setMax", 100)
+        invokeOptional(view, "setProgress", progress.coerceIn(0, 100))
+        invokeOptional(view, "preCalcMaterialClipPath")
+        invokeOptional(view, "refreshSpotLightEnableState")
+        view.invalidate()
+    }
+
     fun diagnostics(): List<String> = listOf(
         classStatus(QS_PROGRESSIVE_BLUR),
         classStatus(NOTIFICATION_TILT_SHIFT),
         classStatus(KEYGUARD_GRADIENT_BLUR),
         classStatus(QS_MULTI_LIGHT),
+        classStatus(QS_VERTICAL_SEEKBAR),
+        classStatus(VOLUME_SEEKBAR),
     )
 
     private fun constructView(className: String): View {
@@ -130,11 +177,13 @@ internal class ColorOsSystemUiDirectViewBridge(context: Context) {
     }
 
     private fun findCompatible(clazz: Class<*>, name: String, args: Array<out Any?>): Method? =
-        clazz.declaredMethods.firstOrNull { method ->
-            method.name == name &&
-                method.parameterCount == args.size &&
-                method.parameterTypes.zip(args).all { (type, arg) -> compatible(type, arg) }
-        }
+        (clazz.declaredMethods.asSequence() + clazz.methods.asSequence())
+            .distinct()
+            .firstOrNull { method ->
+                method.name == name &&
+                    method.parameterCount == args.size &&
+                    method.parameterTypes.zip(args).all { (type, arg) -> compatible(type, arg) }
+            }
 
     private fun compatible(type: Class<*>, arg: Any?): Boolean {
         if (arg == null) return !type.isPrimitive
