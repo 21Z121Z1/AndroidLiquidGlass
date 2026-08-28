@@ -15,6 +15,7 @@ FILES = {
     "interactive_bridge": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveEffectBridge.kt",
     "interactive_recipes": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveRecipeInventory.kt",
     "interactive_resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiInteractiveParityResolver.kt",
+    "integrated": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiIntegratedExecution.kt",
     "parameter_audit": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParameterAuditBridge.kt",
     "scope": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiAuditScope.kt",
     "resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParityResolver.kt",
@@ -140,6 +141,22 @@ for token in [
 require("route_host", "waiting for first real SystemUI draw", "interactive route must not report PASS before shipping draw executes")
 require("route_host", "EffectHostView", "unified host must receive first-frame runtime status from interactive effect host")
 
+# DIRECT_INTEGRATED means a helper is exercised by a real shipping consumer, not faked as a View.
+integrated_helpers = [
+    "com.oplus.systemui.qs.base.util.QsSeekBarBlurManager",
+    "com.oplus.systemui.qs.base.spotlight.SharedSpotLightEffect",
+    "com.oplus.systemui.volume.utils.material.OplusVolumeBarMaterialHost",
+    "com.oplus.systemui.volume.utils.material.OplusVolumeStrokeRenderer",
+    "com.oplus.systemui.volume.utils.material.OplusVolumeStrokeShaderHost",
+    "com.oplus.systemui.volume.utils.spotlight.OplusVolumeSeekBarSpotLightHelper",
+]
+for helper in integrated_helpers:
+    require("integrated", helper, "integrated helper must retain a machine-readable shipping consumer binding")
+for token in ["DIRECT_INTEGRATED", "OplusQsVerticalSeekBar", "OplusVolumeSeekBar", "fun promote", "fun routeFor"]:
+    require("integrated", token, "integrated execution must remain explicit and route through shipping consumers")
+require("inventory", "ColorOsSystemUiIntegratedExecution::promote", "complete inventory must promote integrated helper rows")
+require("registry", "ColorOsSystemUiIntegratedExecution.routeFor", "execution registry must route integrated helpers before generic host rules")
+
 for token in ["SYSTEM_UI_PACKAGE", "UX_PACKAGE", "CLOCK_PACKAGE", 'implementation.startsWith("external://")']:
     require("parameter_audit", token, "parameter/resource audit must cover all strict-inventory package owners")
 require("parameter_audit", "inspectExternalShader", "external AGSL/GLSL rows must inspect the real APK resource")
@@ -242,6 +259,7 @@ print(" - external DEX/shader discovery: guarded")
 print(" - runtime COUI preset expansion: guarded")
 print(" - runtime SystemUI shipping recipe expansion: guarded")
 print(" - direct SystemUI interactive optics/metaball: guarded")
+print(f" - integrated shipping helpers: {len(integrated_helpers)}")
 print(f" - direct routes: {len(direct_routes)}")
 print(f" - Kyant recipes: {len(recipe_names)}")
 print(f" - SystemUI GL assets: {len(gl_assets)}")
