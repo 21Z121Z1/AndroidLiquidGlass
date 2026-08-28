@@ -10,7 +10,7 @@ import dalvik.system.DexFile
  * 1. curated rows whose semantics were reverse-engineered and can be described precisely;
  * 2. a runtime DEX sweep over base + split APKs for ColorOS/SystemUI classes related to
  *    material, blur, stroke, spotlight, Metaball, optics, glass, shader and shadow;
- * 3. a recursive shader-resource sweep over assets/*.agsl|*.glsl and res/raw text shaders.
+ * 3. a recursive shader-resource sweep over AGSL/GLSL assets and res/raw text shaders.
  *
  * Every discovered implementation is assigned a Kyant counterpart. "No 1:1" is an explicit
  * mapping, not an omission. coverageSummary() therefore provides a real audit gate: anything
@@ -76,6 +76,12 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "smoothstep",
             "distance",
         )
+
+        private val KNOWN_DIRECT_RESOURCES = setOf(
+            "assets/chromatic.agsl",
+            "assets/barglow.agsl",
+            "res/raw/metaball.agsl",
+        )
     }
 
     enum class ExecutionMode {
@@ -124,7 +130,33 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
     private val packageContext: Context get() = packageContextResult.getOrThrow()
     private val loader: ClassLoader get() = packageContext.classLoader
 
-    fun mappings(): List<Mapping> {
+    private val mappingCache: List<Mapping> by lazy { buildMappings() }
+
+    fun mappings(): List<Mapping> = mappingCache
+
+    fun coverageSummary(): CoverageSummary {
+        val rows = mappingCache
+        val unmappedRows = rows.filter {
+            it.kyantCounterpart.isBlank() || it.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
+        }
+        val noOneToOne = rows.count { "无 1:1" in it.kyantCounterpart || "邻接" in it.kyantCounterpart }
+        return CoverageSummary(
+            total = rows.size,
+            available = rows.count { it.status.startsWith("available") },
+            unavailable = rows.count { !it.status.startsWith("available") },
+            directView = rows.count { it.executionMode == ExecutionMode.DIRECT_VIEW },
+            surfaceControl = rows.count { it.executionMode == ExecutionMode.SURFACE_CONTROL },
+            systemUiHost = rows.count { it.executionMode == ExecutionMode.SYSTEM_UI_HOST },
+            glPipeline = rows.count { it.executionMode == ExecutionMode.GL_PIPELINE },
+            capabilityOnly = rows.count { it.executionMode == ExecutionMode.CAPABILITY_ONLY },
+            exactOrMechanismMapped = rows.size - noOneToOne - unmappedRows.size,
+            noOneToOneButExplicitlyMapped = noOneToOne,
+            unmapped = unmappedRows.size,
+            unmappedImplementations = unmappedRows.map { it.systemUiImplementation },
+        )
+    }
+
+    private fun buildMappings(): List<Mapping> {
         val curated = curatedMappings()
         val seen = curated.mapTo(linkedSetOf()) { it.systemUiImplementation }
 
@@ -144,28 +176,6 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         return (curated + discoveredClasses + discoveredResources)
             .distinctBy { it.systemUiImplementation }
             .sortedWith(compareBy<Mapping> { groupRank(it.group) }.thenBy { it.group }.thenBy { it.systemUiImplementation })
-    }
-
-    fun coverageSummary(): CoverageSummary {
-        val rows = mappings()
-        val unmappedRows = rows.filter {
-            it.kyantCounterpart.isBlank() || it.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
-        }
-        val noOneToOne = rows.count { "无 1:1" in it.kyantCounterpart || "邻接" in it.kyantCounterpart }
-        return CoverageSummary(
-            total = rows.size,
-            available = rows.count { it.status.startsWith("available") },
-            unavailable = rows.count { !it.status.startsWith("available") },
-            directView = rows.count { it.executionMode == ExecutionMode.DIRECT_VIEW },
-            surfaceControl = rows.count { it.executionMode == ExecutionMode.SURFACE_CONTROL },
-            systemUiHost = rows.count { it.executionMode == ExecutionMode.SYSTEM_UI_HOST },
-            glPipeline = rows.count { it.executionMode == ExecutionMode.GL_PIPELINE },
-            capabilityOnly = rows.count { it.executionMode == ExecutionMode.CAPABILITY_ONLY },
-            exactOrMechanismMapped = rows.size - noOneToOne - unmappedRows.size,
-            noOneToOneButExplicitlyMapped = noOneToOne,
-            unmapped = unmappedRows.size,
-            unmappedImplementations = unmappedRows.map { it.systemUiImplementation },
-        )
     }
 
     private fun curatedMappings(): List<Mapping> = buildList {
@@ -387,11 +397,13 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
                     packageContext.resources.openRawResource(id).use(::readTextPrefix)
                 }.getOrDefault("")
                 if (source.isNotBlank() && isRelevantShader(field.name, source)) {
+                    val gl = "sampler2d" in source.lowercase() || "#version" in source.lowercase()
+                    val extension = if (gl) "glsl" else "agsl"
                     add(
                         ShaderResource(
-                            implementation = "res/raw/${field.name}",
+                            implementation = "res/raw/${field.name}.$extension",
                             source = source,
-                            isGlPipeline = "sampler2d" in source.lowercase() || "#version" in source.lowercase(),
+                            isGlPipeline = gl,
                         ),
                     )
                 }
@@ -437,7 +449,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             kyantCounterpart = autoKyantCounterpart(className),
             executionMode = mode,
             status = classStatus(className),
-            note = "自动从当前安装的 SystemUI DEX 发现；已强制分配 Kyant 机制或显式“无 1:1”映射。业务宿主不在第三方进程中伪造。",
+            note = "自动从当前安装的 SystemUI DEX 发现；已强制分配 Kyant 机制或显式‘无 1:1’映射。业务宿主不在第三方进程中伪造。",
         )
     }
 
@@ -455,17 +467,27 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "sdf" in lower || "distance" in lower -> "RoundedRectangle / Shape SDF"
             else -> "无 1:1；仅实现邻接对照"
         }
+        val mode = when {
+            resource.isGlPipeline -> ExecutionMode.GL_PIPELINE
+            resource.implementation in KNOWN_DIRECT_RESOURCES -> ExecutionMode.DIRECT_VIEW
+            else -> ExecutionMode.CAPABILITY_ONLY
+        }
+        val note = when (mode) {
+            ExecutionMode.DIRECT_VIEW -> "自动扫描到已具备真实 uniform 绑定器的 SystemUI shader；由 Demo 直接执行设备原资源。"
+            ExecutionMode.GL_PIPELINE -> "自动扫描到 SystemUI GLSL；映射到 GL 管线。已知 blur/display 族由 ColorOsSystemUiGlBlurView 直接执行，其他资源只做语义审计。"
+            else -> "自动扫描当前 SystemUI shader 资源；已映射 Kyant 机制，但没有伪造未知 uniform/业务输入绑定。"
+        }
         return Mapping(
             group = if (resource.isGlPipeline) "自动发现 · SystemUI GL 着色器" else "自动发现 · SystemUI RuntimeShader",
             systemUiImplementation = resource.implementation,
             kyantCounterpart = kyant,
-            executionMode = if (resource.isGlPipeline) ExecutionMode.GL_PIPELINE else ExecutionMode.DIRECT_VIEW,
+            executionMode = mode,
             status = if (resource.implementation.startsWith("assets/")) {
                 assetStatus(resource.implementation.removePrefix("assets/"))
             } else {
                 "available:text-resource"
             },
-            note = "自动扫描当前 SystemUI shader 资源；按 shader 语义映射到 Kyant。没有 1:1 primitive 时明确记录，不静默遗漏。",
+            note = note,
         )
     }
 
