@@ -11,6 +11,7 @@ FILES = {
     "inventory": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiCompleteInventory.kt",
     "external_catalog": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsExternalLiquidGlassCatalog.kt",
     "coui_presets": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsCouiPresetInventory.kt",
+    "systemui_recipes": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiShippingRecipeInventory.kt",
     "parameter_audit": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParameterAuditBridge.kt",
     "scope": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiAuditScope.kt",
     "resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParityResolver.kt",
@@ -88,6 +89,18 @@ require("registry", "ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX", "exact COUI s
 require("registry", "ColorOsCouiPresetInventory.TOOLBAR_PREFIX", "exact COUI toolbar category URI must have a route")
 require("route_host", "exactPreset(implementation", "unified host must execute exact preset URI without family substitution")
 require("resolver", "couiPresetContract", "every exact COUI preset row must get a family-accurate Kyant contract")
+
+# Every SystemUI shipping getter/config emitted at runtime must also be a first-class strict row.
+for token in ["MATERIAL_PREFIX", "BLUR_MIX_PREFIX", "presetBridge", "blurMixBridge", "DIRECT_SHADER", "SYSTEM_UI_HOST"]:
+    require("systemui_recipes", token, "SystemUI shipping material/blur-mix inventory must remain runtime-driven")
+require("inventory", "ColorOsSystemUiShippingRecipeInventory", "SystemUI shipping recipe rows must merge into complete inventory")
+require("scope", 'impl.startsWith("recipe://systemui/")', "shipping recipe rows must be CORE_MATERIAL, not adjacent graphics")
+require("registry", "ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX", "exact SystemUI material recipe URI must resolve to shipping preset executor")
+require("registry", "ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX", "exact SystemUI blur/mix URI must distinguish direct shader from host-only")
+require("route_host", "exactSystemUiPreset", "unified host must execute the exact SystemUI adapter/getter recipe id")
+require("route_host", "exactBlurMixRecipe", "unified host must execute the exact SystemUI blur/mix recipe id")
+require("resolver", "systemUiShippingRecipeContract", "every exact SystemUI recipe row must receive a precise Kyant contract")
+require("registry", "Route.SYSTEMUI_HOST", "host-only shipping recipes must remain explicit SystemUI host boundaries")
 
 # Runtime evidence must resolve all three vendor code owners and external shader resources.
 for token in ["SYSTEM_UI_PACKAGE", "UX_PACKAGE", "CLOCK_PACKAGE", 'implementation.startsWith("external://")']:
@@ -186,6 +199,7 @@ print(f" - framework primitives: {len(framework_primitives)}")
 print(f" - cross-package visual primitives: {len(cross_package_visual_primitives)}")
 print(" - external DEX/shader discovery: guarded")
 print(" - runtime COUI preset expansion: guarded")
+print(" - runtime SystemUI shipping recipe expansion: guarded")
 print(f" - direct routes: {len(direct_routes)}")
 print(f" - Kyant recipes: {len(recipe_names)}")
 print(f" - SystemUI GL assets: {len(gl_assets)}")
