@@ -3,23 +3,36 @@ package com.kyant.backdrop.catalog.coloros
 import android.content.Context
 
 /**
- * Complete strict-audit inventory = high-recall runtime catalog + explicitly proven material
- * entry points whose class names/packages are not guaranteed to match the SystemUI keyword sweep.
+ * Strict inventory = SystemUI runtime scan + proven business entries + framework/library/plugin
+ * primitives actually consumed by the system UI material stack.
  */
 internal class ColorOsSystemUiCompleteInventory(context: Context) {
     companion object {
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val UX_PACKAGE = "com.oplus.uxdesign"
+        private const val CLOCK_PACKAGE = "com.oplus.keyguard.personality.clocks"
     }
+
+    private val appContext = context.applicationContext
 
     @Suppress("DEPRECATION")
     private val systemUiContextResult = runCatching {
-        context.applicationContext.createPackageContext(
-            SYSTEM_UI_PACKAGE,
-            Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
-        )
+        appContext.createPackageContext(SYSTEM_UI_PACKAGE, Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
     }
 
-    private val loader: ClassLoader get() = systemUiContextResult.getOrThrow().classLoader
+    @Suppress("DEPRECATION")
+    private val uxContextResult = runCatching {
+        appContext.createPackageContext(UX_PACKAGE, Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
+    }
+
+    @Suppress("DEPRECATION")
+    private val clockContextResult = runCatching {
+        appContext.createPackageContext(CLOCK_PACKAGE, Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
+    }
+
+    private val systemUiLoader: ClassLoader get() = systemUiContextResult.getOrThrow().classLoader
+    private val uxLoader: ClassLoader get() = uxContextResult.getOrThrow().classLoader
+    private val clockLoader: ClassLoader get() = clockContextResult.getOrThrow().classLoader
     private val runtimeCatalog = ColorOsSystemUiLiquidGlassCatalog(context)
 
     fun mappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> {
@@ -35,94 +48,118 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
 
     private fun requiredMappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> = listOf(
         direct(
-            group = "控制中心/QS · 强制入口",
-            className = "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
-            kyant = "drawBackdrop + blur + colorControls/vibrancy + Highlight",
-            note = "真实业务 View；onDraw 进入 QsSeekBarBlurManager。类名本身可能逃过高召回关键词，因此强制纳入。",
+            "控制中心/QS · 强制入口",
+            "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
+            "drawBackdrop + blur + colorControls/vibrancy + Highlight",
+            "真实业务 View；onDraw 进入 QsSeekBarBlurManager。",
         ),
         direct(
-            group = "音量面板 · 强制入口",
-            className = "com.oplus.systemui.volume.OplusVolumeSeekBar",
-            kyant = "drawBackdrop + shape + blur + Highlight + InnerShadow",
-            note = "真实业务 View；构造链进入 OplusVolumeBarMaterialHost/OplusVolumeStrokeRenderer。",
+            "音量面板 · 强制入口",
+            "com.oplus.systemui.volume.OplusVolumeSeekBar",
+            "drawBackdrop + shape + blur + Highlight + InnerShadow",
+            "真实业务 View；构造链进入 OplusVolumeBarMaterialHost/OplusVolumeStrokeRenderer。",
         ),
         direct(
-            group = "控制中心/QS · 强制入口",
-            className = "com.oplus.systemui.qs.media.ProgressiveBlurOverlay",
-            kyant = "drawPlainBackdrop + progress-driven blur()",
-            note = "普通 View 直接执行 setBlurProgress；即使未来扫描规则改变也不得从严格审计消失。",
+            "控制中心/QS · 强制入口",
+            "com.oplus.systemui.qs.media.ProgressiveBlurOverlay",
+            "drawPlainBackdrop + progress-driven blur()",
+            "普通 View 直接执行 setBlurProgress。",
         ),
         direct(
-            group = "通知 · 强制入口",
-            className = "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer",
-            kyant = "drawPlainBackdrop + masked/progressive blur nearest mechanism",
-            note = "普通 View 直接执行 setMaterialBlur；保持在严格 direct-entry 清单。",
+            "通知 · 强制入口",
+            "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer",
+            "drawPlainBackdrop + masked/progressive blur nearest mechanism",
+            "普通 View 直接执行 setMaterialBlur。",
         ),
         direct(
-            group = "锁屏/SystemUI · 强制入口",
-            className = "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView",
-            kyant = "LayerBackdrop + progress-driven blur()",
-            note = "锁屏渐变模糊遮罩可直接构造并调用 showBlurMask；不是折射。",
+            "锁屏/SystemUI · 强制入口",
+            "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView",
+            "LayerBackdrop + progress-driven blur()",
+            "锁屏渐变模糊遮罩可直接构造并调用 showBlurMask；不是折射。",
         ),
         direct(
-            group = "控制中心/QS · 强制入口",
-            className = "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams",
-            kyant = "Shape/SDF + Highlight nearest mechanism",
-            note = "直接获取 shipping RuntimeShader；Kyant 没有 1:1 多光源模型。",
+            "控制中心/QS · 强制入口",
+            "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams",
+            "Shape/SDF + Highlight nearest mechanism",
+            "直接获取 shipping RuntimeShader；Kyant 没有 1:1 多光源模型。",
         ),
         direct(
-            group = "壁纸 · 强制入口",
-            className = "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
-            kyant = "LayerBackdrop/source bitmap + blur surface tint",
-            note = "已有 createWallpaperBlurDrawable() 普通 Drawable 执行桥，严格审计按 DIRECT_VIEW 处理。",
+            "壁纸 · 强制入口",
+            "com.oplus.systemui.wallpaperblur.WallpaperBlurDrawable",
+            "LayerBackdrop/source bitmap + blur surface tint",
+            "已有普通 Drawable 执行桥。",
         ),
 
-        // Framework-side primitives that SystemUI/COUI material consumers call into. They live
-        // outside the SystemUI APK namespace, so a DEX-name sweep alone can never discover them.
         capability(
-            group = "外部框架原语 · 强制入口",
-            className = "com.oplus.graphics.OplusRenderEffect",
-            kyant = "BackdropEffectScope RenderEffect graph + blur/progressive blur",
-            note = "SystemUI/COUI 使用的 Oplus RenderEffect 工厂；包含渐变模糊等 vendor RenderEffect 入口。",
+            "外部框架原语 · 强制入口",
+            "com.oplus.graphics.OplusRenderEffect",
+            "BackdropEffectScope RenderEffect graph + blur/progressive blur",
+            "SystemUI/COUI 使用的 Oplus RenderEffect 工厂。",
         ),
         capability(
-            group = "外部框架原语 · 强制入口",
-            className = "com.oplus.view.OplusViewBackgroundRenderEffect",
-            kyant = "Backdrop attach/lifecycle + RenderEffect application",
-            note = "把 vendor background RenderEffect 挂到真实 View 的框架原语；对应 Kyant drawBackdrop/Backdrop attach 层。",
+            "外部框架原语 · 强制入口",
+            "com.oplus.view.OplusViewBackgroundRenderEffect",
+            "Backdrop attach/lifecycle + RenderEffect application",
+            "把 vendor background RenderEffect 挂到真实 View。",
         ),
         capability(
-            group = "外部框架原语 · 强制入口",
-            className = "com.oplus.view.material.OplusMaterialUtil",
-            kyant = "Shape/SDF + Highlight + InnerShadow/Shadow material layer",
-            note = "SystemUI/COUI 的 edge/shadow/caustic 等 material 参数最终下沉到该框架工具层。",
+            "外部框架原语 · 强制入口",
+            "com.oplus.view.material.OplusMaterialUtil",
+            "Shape/SDF + Highlight + InnerShadow/Shadow material layer",
+            "edge/shadow/caustic 等材质参数的框架下沉层。",
+        ),
+
+        // com.oplus.uxdesign is a separate package, but SystemUI material consumers use these
+        // COUI primitives. They must be audited alongside SystemUI rather than hidden behind a
+        // generic 'material' label.
+        direct(
+            "外部 COUI 材质原语 · 强制入口",
+            "com.coui.appcompat.COUIMaterialBlurEffect",
+            "blur() + vibrancy/colorControls + surface tint",
+            "直接调用设备安装的 COUIMaterialBlurEffect preset。",
+        ),
+        direct(
+            "外部 COUI 材质原语 · 强制入口",
+            "com.coui.appcompat.COUIMaterialStrokeEffect",
+            "Shape/SDF + Highlight + Shadow",
+            "方向性 edge + shadow shipping stroke family。",
+        ),
+        direct(
+            "外部 COUI 材质原语 · 强制入口",
+            "com.coui.appcompat.spotlight.COUISpotLightEffect",
+            "Highlight nearest mechanism + pointer state",
+            "触摸/热点驱动的 shipping spotlight family。",
+        ),
+        direct(
+            "外部 COUI 材质原语 · 强制入口",
+            "com.coui.appcompat.toolbar.ToolbarMaterialEffectDelegate",
+            "blur + Highlight/stroke + spotlight + Shadow/caustic composite",
+            "Toolbar 组合材质宿主，可同时启用 blur/stroke/spotlight/caustic。",
+        ),
+        direct(
+            "外部 COUI 材质原语 · 强制入口",
+            "com.coui.appcompat.toolbar.AppBarBlurHelper",
+            "progress-driven / gradient blur()",
+            "调用 OplusRenderEffect.createGradientBlurEffect 的渐进模糊宿主。",
+        ),
+
+        // True lock-screen refraction lives in the personality-clocks plugin, which SystemUI
+        // loads as a sub-plugin. Keep this path in the same parity matrix so the actual refractive
+        // glass cannot be confused with SystemUI Optics/Stroke effects.
+        direct(
+            "锁屏插件真折射 · 强制入口",
+            "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder",
+            "lens(refraction + chromaticAberration) + blur + Highlight",
+            "直接加载 personality.clocks 的 GlassEffectBuilder；返回真实 android.graphics.RenderEffect。",
         ),
     )
 
-    private fun direct(
-        group: String,
-        className: String,
-        kyant: String,
-        note: String,
-    ) = mapping(
-        group = group,
-        className = className,
-        kyant = kyant,
-        mode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW,
-        note = note,
+    private fun direct(group: String, className: String, kyant: String, note: String) = mapping(
+        group, className, kyant, ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW, note,
     )
 
-    private fun capability(
-        group: String,
-        className: String,
-        kyant: String,
-        note: String,
-    ) = mapping(
-        group = group,
-        className = className,
-        kyant = kyant,
-        mode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY,
-        note = note,
+    private fun capability(group: String, className: String, kyant: String, note: String) = mapping(
+        group, className, kyant, ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY, note,
     )
 
     private fun mapping(
@@ -141,24 +178,32 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
     )
 
     private fun classStatus(className: String): String = runCatching {
-        loader.loadClass(className)
+        loaderFor(className).loadClass(className)
         "available:required-entry"
     }.getOrElse { "unavailable:${describe(it)}" }
+
+    private fun loaderFor(className: String): ClassLoader = when {
+        className.startsWith("com.coui.") -> uxLoader
+        className.startsWith("com.oplus.keyguard.clock.") -> clockLoader
+        else -> systemUiLoader
+    }
 
     private fun strictGroupRank(group: String): Int = when {
         group.startsWith("核心后处理") -> 0
         group.startsWith("SystemUI 着色器") -> 1
         group.startsWith("SystemUI GL") -> 2
         group.startsWith("外部框架原语") -> 3
-        group.startsWith("公共模糊") -> 4
-        group.startsWith("通知") -> 5
-        group.startsWith("控制中心") -> 6
-        group.startsWith("音量") -> 7
-        group.startsWith("锁屏") -> 8
-        group.startsWith("壁纸") -> 9
-        group.startsWith("生物识别") -> 10
-        group.startsWith("全局面板") -> 11
-        group.startsWith("Metaball") -> 12
+        group.startsWith("外部 COUI") -> 4
+        group.startsWith("公共模糊") -> 5
+        group.startsWith("通知") -> 6
+        group.startsWith("控制中心") -> 7
+        group.startsWith("音量") -> 8
+        group.startsWith("锁屏插件") -> 9
+        group.startsWith("锁屏") -> 10
+        group.startsWith("壁纸") -> 11
+        group.startsWith("生物识别") -> 12
+        group.startsWith("全局面板") -> 13
+        group.startsWith("Metaball") -> 14
         else -> 20
     }
 
