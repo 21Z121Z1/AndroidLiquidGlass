@@ -4,16 +4,18 @@ import android.content.Context
 import java.lang.reflect.Modifier
 
 /**
- * Safe runtime inspection for CAPABILITY_ONLY SystemUI material classes.
+ * Safe runtime inspection for CAPABILITY_ONLY material classes used by SystemUI.
  *
- * This does not call arbitrary business methods. It reads enum values/static constants and only
- * invokes zero-argument bean-style getters on a Kotlin singleton or zero-arg data holder when the
- * return type is a small scalar/enum/String. This gives the comparison lab real vendor-owned
- * parameter evidence without fabricating values or triggering controller actions.
+ * The strict inventory spans com.android.systemui, com.oplus.uxdesign and the personality-clocks
+ * plugin. This bridge therefore resolves each class through the package that actually owns it,
+ * while keeping the same conservative inspection rules: no arbitrary business calls, only enum
+ * values/static constants, signatures and safe zero-argument scalar getters.
  */
 internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
     companion object {
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val UX_PACKAGE = "com.oplus.uxdesign"
+        private const val CLOCK_PACKAGE = "com.oplus.keyguard.personality.clocks"
         private const val MAX_SIGNATURES = 80
         private const val MAX_VALUES = 80
     }
@@ -31,15 +33,34 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
             get() = enumConstants.size + staticConstants.size + getterValues.size + methodSignatures.size
     }
 
+    private val appContext = context.applicationContext
+
     @Suppress("DEPRECATION")
-    private val systemUiContext = context.applicationContext.createPackageContext(
-        SYSTEM_UI_PACKAGE,
-        Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
-    )
-    private val loader = systemUiContext.classLoader
+    private val systemUiContext = runCatching {
+        appContext.createPackageContext(
+            SYSTEM_UI_PACKAGE,
+            Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private val uxContext = runCatching {
+        appContext.createPackageContext(
+            UX_PACKAGE,
+            Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private val clockContext = runCatching {
+        appContext.createPackageContext(
+            CLOCK_PACKAGE,
+            Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
+        )
+    }
 
     fun inspect(className: String): Result<Snapshot> = runCatching {
-        val clazz = loader.loadClass(className)
+        val clazz = loadClass(className)
         val enumConstants = clazz.enumConstants?.map { (it as Enum<*>).name }.orEmpty()
 
         val staticConstants = clazz.declaredFields
@@ -113,6 +134,27 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
         )
     }
 
+    private fun loadClass(className: String): Class<*> {
+        val preferred = when {
+            className.startsWith("com.coui.") -> listOf(uxContext, systemUiContext, clockContext)
+            className.startsWith("com.oplus.keyguard.clock.") -> listOf(clockContext, systemUiContext, uxContext)
+            else -> listOf(systemUiContext, uxContext, clockContext)
+        }
+
+        var last: Throwable? = null
+        preferred.forEach { contextResult ->
+            contextResult.getOrNull()?.let { packageContext ->
+                runCatching { packageContext.classLoader.loadClass(className) }
+                    .onSuccess { return it }
+                    .onFailure { last = it }
+            }
+        }
+        runCatching { Class.forName(className, false, appContext.classLoader) }
+            .onSuccess { return it }
+            .onFailure { last = it }
+        throw last ?: ClassNotFoundException(className)
+    }
+
     private fun safeInstance(clazz: Class<*>): Pair<Any?, String?> {
         runCatching {
             val instanceField = clazz.getDeclaredField("INSTANCE").apply { isAccessible = true }
@@ -122,7 +164,7 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
 
         val simpleName = clazz.simpleName.lowercase()
         val looksLikeDataHolder = listOf(
-            "params", "param", "config", "group", "state", "mixcolor", "adapter",
+            "params", "param", "config", "group", "state", "mixcolor", "adapter", "effect",
         ).any { token -> token in simpleName }
         if (!looksLikeDataHolder) return null to null
 
