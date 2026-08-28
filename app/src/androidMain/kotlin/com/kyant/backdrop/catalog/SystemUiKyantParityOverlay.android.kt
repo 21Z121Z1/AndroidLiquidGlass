@@ -1,5 +1,6 @@
 package com.kyant.backdrop.catalog
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
@@ -84,7 +85,7 @@ fun SystemUiKyantParityOverlay() {
 
     val context = LocalContext.current
     val density = LocalDensity.current
-    val wallpaper = remember { createParityWallpaper() }
+    val wallpaper = remember(context) { createParityWallpaper(context) }
     val inventory = remember(context) { ColorOsSystemUiCompleteInventory(context) }
     val mappings = remember(inventory) { inventory.mappings() }
     val core = remember(mappings) {
@@ -504,7 +505,10 @@ private fun ParityButton(text: String, onClick: () -> Unit) {
     }
 }
 
-private fun createParityWallpaper(width: Int = 1080, height: Int = 1800): Bitmap {
+private fun createParityWallpaper(context: Context): Bitmap {
+    val dm = context.resources.displayMetrics
+    val width = dm.widthPixels.coerceAtLeast(720)
+    val height = dm.heightPixels.coerceAtLeast(1280)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
