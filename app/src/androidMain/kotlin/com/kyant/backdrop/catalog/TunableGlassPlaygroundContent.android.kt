@@ -411,6 +411,7 @@ private class TunableGlassPreviewView(context: Context) : View(context) {
     private var attachedWidth = 0
     private var attachedHeight = 0
     private var scrollUpdatePosted = false
+    private var parameterUpdatePosted = false
 
     var onStatus: ((String) -> Unit)? = null
 
@@ -448,21 +449,21 @@ private class TunableGlassPreviewView(context: Context) : View(context) {
         invalidate()
 
         if (wallpaperChanged) attachedWallpaperId = 0
-        applyIfReady()
+        scheduleParameterUpdate()
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (viewTreeObserver.isAlive) viewTreeObserver.addOnScrollChangedListener(scrollListener)
         attachedWallpaperId = 0
-        applyIfReady()
+        scheduleParameterUpdate()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         invalidateOutline()
         if (w != oldw || h != oldh) attachedWallpaperId = 0
-        applyIfReady()
+        scheduleParameterUpdate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -475,6 +476,15 @@ private class TunableGlassPreviewView(context: Context) : View(context) {
         bridge.clear(this)
         if (viewTreeObserver.isAlive) viewTreeObserver.removeOnScrollChangedListener(scrollListener)
         super.onDetachedFromWindow()
+    }
+
+    private fun scheduleParameterUpdate() {
+        if (parameterUpdatePosted) return
+        parameterUpdatePosted = true
+        postOnAnimation {
+            parameterUpdatePosted = false
+            applyIfReady()
+        }
     }
 
     private fun applyIfReady() {
