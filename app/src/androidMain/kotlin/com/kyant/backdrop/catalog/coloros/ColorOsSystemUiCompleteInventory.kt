@@ -4,7 +4,7 @@ import android.content.Context
 
 /**
  * Strict inventory = SystemUI runtime scan + proven business entries + framework/library/plugin
- * primitives + every installed COUI material preset + high-recall external-package scan.
+ * primitives + every installed COUI preset + every discovered SystemUI shipping recipe + external scan.
  */
 internal class ColorOsSystemUiCompleteInventory(context: Context) {
     companion object {
@@ -36,25 +36,23 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
     private val runtimeCatalog = ColorOsSystemUiLiquidGlassCatalog(context)
     private val externalCatalog = ColorOsExternalLiquidGlassCatalog(context)
     private val couiPresetInventory = ColorOsCouiPresetInventory(context)
+    private val shippingRecipeInventory = ColorOsSystemUiShippingRecipeInventory(context)
 
     fun mappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> {
         val runtime = runtimeCatalog.mappings()
         val runtimeNames = runtime.mapTo(hashSetOf()) { it.systemUiImplementation }
 
-        // Precise required mappings outrank generic external auto-discovery. This is important for
-        // known executable COUI/Glass entry points: an auto CAPABILITY_ONLY row must never suppress
-        // the already-proven DIRECT_VIEW route.
         val required = requiredMappings().filter { it.systemUiImplementation !in runtimeNames }
         val knownAfterRequired = (runtime + required).mapTo(hashSetOf()) { it.systemUiImplementation }
 
-        // Preset rows are exact runtime enum values and therefore outrank generic external class/
-        // resource discoveries. Every visual COUI enum entry gets its own independently selectable
-        // A/B row instead of being represented by one class-level sample.
-        val presets = couiPresetInventory.mappings().filter { it.systemUiImplementation !in knownAfterRequired }
-        val known = (runtime + required + presets).mapTo(hashSetOf()) { it.systemUiImplementation }
+        val couiPresets = couiPresetInventory.mappings().filter { it.systemUiImplementation !in knownAfterRequired }
+        val knownAfterCoui = (runtime + required + couiPresets).mapTo(hashSetOf()) { it.systemUiImplementation }
+
+        val shippingRecipes = shippingRecipeInventory.mappings().filter { it.systemUiImplementation !in knownAfterCoui }
+        val known = (runtime + required + couiPresets + shippingRecipes).mapTo(hashSetOf()) { it.systemUiImplementation }
         val external = externalCatalog.mappings().filter { it.systemUiImplementation !in known }
 
-        return (runtime + required + presets + external).sortedWith(
+        return (runtime + required + couiPresets + shippingRecipes + external).sortedWith(
             compareBy<ColorOsSystemUiLiquidGlassCatalog.Mapping> { strictGroupRank(it.group) }
                 .thenBy { it.group }
                 .thenBy { it.systemUiImplementation },
@@ -203,7 +201,7 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         group.startsWith("SystemUI GL") -> 2
         group.startsWith("外部框架原语") -> 3
         group.startsWith("外部 COUI") -> 4
-        group.startsWith("COUI shipping preset") -> 5
+        group.startsWith("SystemUI shipping recipe") -> 5
         group.startsWith("公共模糊") -> 6
         group.startsWith("通知") -> 7
         group.startsWith("控制中心") -> 8
