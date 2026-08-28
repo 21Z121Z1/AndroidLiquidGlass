@@ -36,13 +36,14 @@ import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiCompleteInventory
 import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiExecutionRegistry
 
 /**
- * Runtime audit for the complete SystemUI material set. A core item only passes when its semantic
- * mapping, executable Kyant parity contract and compatible ColorOS execution route all exist.
+ * Runtime audit for the complete SystemUI material set. A core item only passes when semantic
+ * mapping, concrete Kyant contract, compatible ColorOS route and explicit delta all exist.
  */
 @Composable
 fun SystemUiScopedAuditOverlay() {
     var open by rememberSaveable { mutableStateOf(false) }
     var showAdjacent by rememberSaveable { mutableStateOf(false) }
+    var failuresOnly by rememberSaveable { mutableStateOf(false) }
 
     if (!open) {
         Box(
@@ -61,6 +62,8 @@ fun SystemUiScopedAuditOverlay() {
     val summary = remember(mappings) { ColorOsSystemUiAuditScope.summary(mappings) }
     val core = remember(classified) { classified.filter { it.scope == ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL } }
     val adjacent = remember(classified) { classified.filter { it.scope == ColorOsSystemUiAuditScope.Scope.ADJACENT_GRAPHICS } }
+    val failedCore = remember(core) { core.filter(::isAuditFailure) }
+    val visibleCore = if (failuresOnly) failedCore else core
 
     Box(Modifier.fillMaxSize().background(Color(0xFF080A0F))) {
         Column(
@@ -73,30 +76,46 @@ fun SystemUiScopedAuditOverlay() {
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                BasicText("SystemUI 核心材质 / Kyant 契约", style = TextStyle(Color.White, 21.sp, FontWeight.SemiBold))
+                BasicText("SystemUI Liquid Glass 严格审计", style = TextStyle(Color.White, 21.sp, FontWeight.SemiBold))
                 ScopeButton("关闭") { open = false }
             }
 
             BasicText(
-                "运行时扫描 SystemUI base/split DEX 与 shader 资源，并强制补入已证明可执行但类名可能逃过关键词扫描的业务入口。CORE_MATERIAL 只有在三项同时成立时才通过：SystemUI→Kyant 语义映射存在、能解析成实际 Kyant API 契约、并且存在与执行模式兼容的 ColorOS bridge/GL/宿主路由。",
+                "严格清单由 SystemUI base/split DEX、shader 资源、已证明的业务 View，以及 SystemUI 实际调用的 Oplus 框架材质原语共同组成。CORE_MATERIAL 必须同时满足：语义映射、Kyant 强类型 recipe、兼容的 ColorOS 执行路由、以及明确的差异声明。未知 GLSL 不会因为扩展名就被当成已执行 GL 管线。",
                 style = scopeInfoStyle(),
             )
 
             CoreGateCard(summary)
 
-            ScopeTitle("CORE_MATERIAL · ${core.size}")
-            core.groupBy { it.mapping.group }.forEach { (group, rows) ->
-                BasicText(group, style = TextStyle(Color.White, 13.sp, FontWeight.SemiBold))
-                rows.forEach { ScopedMappingCard(it) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScopeButton(if (failuresOnly) "显示全部核心" else "只看失败 · ${failedCore.size}") {
+                    failuresOnly = !failuresOnly
+                }
+                ScopeButton(if (showAdjacent) "隐藏相邻" else "相邻 · ${adjacent.size}") {
+                    showAdjacent = !showAdjacent
+                }
             }
 
-            ScopeButton(if (showAdjacent) "收起相邻图形" else "展开相邻图形 · ${adjacent.size}") {
-                showAdjacent = !showAdjacent
+            ScopeTitle(
+                if (failuresOnly) "CORE FAILURES · ${failedCore.size}"
+                else "CORE_MATERIAL · ${core.size}",
+            )
+            if (visibleCore.isEmpty()) {
+                BasicText(
+                    if (failuresOnly) "没有结构化覆盖失败项。真机直接执行结果仍需逐项观察 PASS/UNAVAILABLE。" else "没有核心材质项。",
+                    style = TextStyle(Color(0xFF9DE7AA), 11.sp, FontWeight.Medium),
+                )
+            } else {
+                visibleCore.groupBy { it.mapping.group }.forEach { (group, rows) ->
+                    BasicText(group, style = TextStyle(Color.White, 13.sp, FontWeight.SemiBold))
+                    rows.forEach { ScopedMappingCard(it) }
+                }
             }
+
             if (showAdjacent) {
                 ScopeTitle("ADJACENT_GRAPHICS · ${adjacent.size}")
                 BasicText(
-                    "这些命中保留用于发现潜在线索；在没有 ColorOS 材质调用链证据前不进入核心覆盖率，也不要求材质对照契约。",
+                    "这些命中只用于发现线索。没有 ColorOS 材质调用链证据时，不进入 Liquid Glass 覆盖率，也不会为了数字好看被强行映射。",
                     style = scopeInfoStyle(),
                 )
                 adjacent.groupBy { it.mapping.group }.forEach { (group, rows) ->
@@ -122,34 +141,35 @@ private fun CoreGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
     ) {
         BasicText(
             if (summary.coreComplete) {
-                "CORE PASS · ${summary.coreCoveragePercent}% · semantic + Kyant + ColorOS route"
+                "CORE PASS · ${summary.coreCoveragePercent}% · semantic + Kyant + ColorOS route + delta"
             } else {
-                "CORE FAIL · semantic ${summary.coreUnmapped} · contract ${summary.coreContractMissing} · route ${summary.coreRouteMissing} · incompatible ${summary.coreRouteIncompatible}"
+                "CORE FAIL · semantic ${summary.coreUnmapped} · contract ${summary.coreContractMissing} · route ${summary.coreRouteMissing} · incompatible ${summary.coreRouteIncompatible} · delta ${summary.coreDeltaMissing}"
             },
             style = TextStyle(color, 15.sp, FontWeight.SemiBold),
         )
         BasicText("全扫描 ${summary.total} · 核心 ${summary.core} · 相邻 ${summary.adjacent}", style = scopeDiagnosticsStyle())
         BasicText(
-            "mapped ${summary.coreMapped}/${summary.core} · contracted ${summary.coreContracted}/${summary.core} · routed ${summary.coreRouted}/${summary.core}",
+            "mapped ${summary.coreMapped}/${summary.core} · contract ${summary.coreContracted}/${summary.core} · route ${summary.coreRouted}/${summary.core} · delta ${summary.coreDeltaResolved}/${summary.core}",
             style = scopeDiagnosticsStyle(),
         )
         BasicText(
-            "available ${summary.coreAvailable} · direct ${summary.coreDirect} · host-bound ${summary.coreHostBound}",
+            "available ${summary.coreAvailable} · direct/GL ${summary.coreDirect} · host-bound ${summary.coreHostBound}",
             style = scopeDiagnosticsStyle(),
         )
         BasicText(
-            "mechanism ${summary.parityMechanism} · composite ${summary.parityComposite} · nearest ${summary.parityNearestOnly} · host-lifecycle ${summary.parityHostLifecycle}",
+            "Kyant: mechanism ${summary.parityMechanism} · composite ${summary.parityComposite} · nearest ${summary.parityNearestOnly} · host ${summary.parityHostLifecycle}",
             style = scopeDiagnosticsStyle(),
         )
-        summary.missingContracts.forEach {
-            BasicText("MISSING_CONTRACT · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
-        }
-        summary.missingRoutes.forEach {
-            BasicText("MISSING_ROUTE · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
-        }
+        BasicText(
+            "Delta: exact ${summary.deltaExactMechanism} · composite ${summary.deltaCompositeEquivalent} · nearest ${summary.deltaNearestOnly} · host ${summary.deltaHostOnly}",
+            style = scopeDiagnosticsStyle(),
+        )
+        summary.missingContracts.forEach { BasicText("MISSING_CONTRACT · $it", style = failureStyle()) }
+        summary.missingRoutes.forEach { BasicText("MISSING_ROUTE · $it", style = failureStyle()) }
         summary.incompatibleRoutes.forEach {
             BasicText("INCOMPATIBLE_ROUTE · $it", style = TextStyle(Color(0xFFFFB74D), 9.sp))
         }
+        summary.missingDeltas.forEach { BasicText("MISSING_DELTA · $it", style = failureStyle()) }
     }
 }
 
@@ -176,7 +196,7 @@ private fun ScopedMappingCard(item: ColorOsSystemUiAuditScope.Classified) {
         if (item.scope == ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL) {
             val route = item.executionRoute
             if (route == null) {
-                BasicText("ColorOS route · MISSING_ROUTE", style = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.SemiBold))
+                BasicText("ColorOS route · MISSING_ROUTE", style = failureStyle())
             } else {
                 val compatible = ColorOsSystemUiExecutionRegistry.routeIsCompatible(route, effective)
                 BasicText(
@@ -188,7 +208,7 @@ private fun ScopedMappingCard(item: ColorOsSystemUiAuditScope.Classified) {
 
             val contract = item.parityContract
             if (contract == null) {
-                BasicText("Kyant · MISSING_CONTRACT", style = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.SemiBold))
+                BasicText("Kyant · MISSING_CONTRACT", style = failureStyle())
             } else {
                 BasicText(
                     "Kyant · ${contract.kind} · ${contract.recipe}",
@@ -196,6 +216,16 @@ private fun ScopedMappingCard(item: ColorOsSystemUiAuditScope.Classified) {
                 )
                 BasicText(contract.apiSummary, style = scopeDiagnosticsStyle())
                 BasicText(contract.rationale, style = scopeDiagnosticsStyle())
+            }
+
+            val delta = item.delta
+            if (delta == null) {
+                BasicText("Delta · MISSING_DELTA", style = failureStyle())
+            } else {
+                BasicText("Delta · ${delta.grade}", style = TextStyle(Color(0xFFFFD180), 9.sp, FontWeight.Medium))
+                BasicText(delta.note, style = scopeDiagnosticsStyle())
+                delta.colorOsSpecific.forEach { BasicText("ColorOS 特有 · $it", style = scopeDiagnosticsStyle()) }
+                delta.kyantLimit.forEach { BasicText("Kyant 边界 · $it", style = scopeDiagnosticsStyle()) }
             }
         } else {
             BasicText("↔ Kyant（相邻语义）：${row.kyantCounterpart}", style = scopeDiagnosticsStyle())
@@ -208,6 +238,19 @@ private fun ScopedMappingCard(item: ColorOsSystemUiAuditScope.Classified) {
         )
         BasicText(row.note, style = scopeDiagnosticsStyle())
     }
+}
+
+private fun isAuditFailure(item: ColorOsSystemUiAuditScope.Classified): Boolean {
+    if (item.scope != ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL) return false
+    val mapping = item.mapping
+    val semanticMissing = mapping.kyantCounterpart.isBlank() || mapping.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
+    val route = item.executionRoute
+    val routeMissing = route == null
+    val incompatible = route != null && !ColorOsSystemUiExecutionRegistry.routeIsCompatible(
+        route,
+        ColorOsSystemUiAuditScope.effectiveExecution(mapping),
+    )
+    return semanticMissing || item.parityContract == null || routeMissing || incompatible || item.delta == null
 }
 
 @Composable
@@ -230,5 +273,6 @@ private fun ScopeTitle(text: String) {
     BasicText(text, style = TextStyle(Color.White, 17.sp, FontWeight.SemiBold))
 }
 
+private fun failureStyle() = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.SemiBold)
 private fun scopeInfoStyle() = TextStyle(Color.White.copy(alpha = 0.78f), 11.sp)
 private fun scopeDiagnosticsStyle() = TextStyle(Color.White.copy(alpha = 0.67f), 9.sp)
