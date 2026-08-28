@@ -12,5 +12,6 @@ fun AndroidRootContent() {
         SystemUiDeepDiveOverlay()
         SystemUiBlurMixOverlay()
         SystemUiBusinessViewsOverlay()
+        SystemUiScopedAuditOverlay()
     }
 }
