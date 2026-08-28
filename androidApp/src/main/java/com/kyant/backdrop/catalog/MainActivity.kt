@@ -9,10 +9,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ColorOsHiddenApiAccess.enable()
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            MainContent()
+            AndroidRootContent()
         }
     }
 }

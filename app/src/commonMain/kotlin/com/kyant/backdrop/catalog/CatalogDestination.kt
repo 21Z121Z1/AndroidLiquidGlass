@@ -14,6 +14,7 @@ enum class CatalogDestination {
     Magnifier,
 
     GlassPlayground,
+    ColorOsNativeComparison,
     AdaptiveLuminanceGlass,
     ProgressiveBlur,
     ScrollContainer,

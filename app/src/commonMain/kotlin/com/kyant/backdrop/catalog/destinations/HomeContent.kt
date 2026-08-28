@@ -49,12 +49,13 @@ fun HomeContent(onNavigate: (CatalogDestination) -> Unit) {
             ListItem({ onNavigate(CatalogDestination.Dialog) }, "Dialog")
 
             Subtitle("System UIs")
-            ListItem({ onNavigate(CatalogDestination.LockScreen) }, "Lock screen (SDF texture)")
-            ListItem({ onNavigate(CatalogDestination.ControlCenter) }, "Control center")
-            ListItem({ onNavigate(CatalogDestination.Magnifier) }, "Magnifier")
+            ListItem({ onNavigate(CatalogDestination.LockScreen) }, "Lock screen (ColorOS refractive glass)")
+            ListItem({ onNavigate(CatalogDestination.ControlCenter) }, "Control center (COUI semantic stack)")
+            ListItem({ onNavigate(CatalogDestination.Magnifier) }, "Magnifier (closest circle material)")
 
             Subtitle("Experiments")
-            ListItem({ onNavigate(CatalogDestination.GlassPlayground) }, "Glass playground")
+            ListItem({ onNavigate(CatalogDestination.GlassPlayground) }, "ColorOS material playground")
+            ListItem({ onNavigate(CatalogDestination.ColorOsNativeComparison) }, "ColorOS native diagnostics")
             ListItem({ onNavigate(CatalogDestination.AdaptiveLuminanceGlass) }, "Adaptive luminance glass")
             ListItem({ onNavigate(CatalogDestination.ProgressiveBlur) }, "Progressive blur")
             ListItem({ onNavigate(CatalogDestination.ScrollContainer) }, "Scroll container")

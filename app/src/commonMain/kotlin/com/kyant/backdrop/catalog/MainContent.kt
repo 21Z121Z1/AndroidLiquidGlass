@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import com.kyant.backdrop.catalog.destinations.AdaptiveLuminanceGlassContent
 import com.kyant.backdrop.catalog.destinations.BottomTabsContent
 import com.kyant.backdrop.catalog.destinations.ButtonsContent
+import com.kyant.backdrop.catalog.destinations.ColorOsNativeComparisonContent
 import com.kyant.backdrop.catalog.destinations.ControlCenterContent
 import com.kyant.backdrop.catalog.destinations.DialogContent
 import com.kyant.backdrop.catalog.destinations.GlassPlaygroundContent
@@ -34,24 +35,61 @@ fun MainContent() {
     ) {
         var destination by rememberSaveable { mutableStateOf(CatalogDestination.Home) }
 
-        when (destination) {
-            CatalogDestination.Home -> HomeContent(onNavigate = { destination = it })
+        // The implementation matrix is routed ahead of the semantic Android
+        // replacement pages because it intentionally renders Kyant and the
+        // recovered ColorOS paths in the same destination for A/B analysis.
+        val comparisonHandled = destination == CatalogDestination.ColorOsNativeComparison
+        if (comparisonHandled) {
+            ColorOsNativeComparisonContent()
+        }
 
-            CatalogDestination.Buttons -> ButtonsContent()
-            CatalogDestination.Toggle -> ToggleContent()
-            CatalogDestination.Slider -> SliderContent()
-            CatalogDestination.BottomTabs -> BottomTabsContent()
-            CatalogDestination.Dialog -> DialogContent()
+        // The ColorOS glass playground has an even higher-priority Android
+        // research route because it needs a long-lived RuntimeShader session
+        // for frame-by-frame parameter tuning. Other destinations continue
+        // through the semantic ColorOS mapping.
+        val tuningHandled = if (comparisonHandled) {
+            true
+        } else {
+            TunableGlassPlaygroundContent(destination)
+        }
+        val semanticHandled = if (tuningHandled) {
+            true
+        } else {
+            SemanticColorOsCatalogContent(
+                destination = destination,
+                onNavigate = { destination = it },
+            )
+        }
+        val platformHandled = if (semanticHandled) {
+            true
+        } else {
+            PlatformCatalogContent(
+                destination = destination,
+                onNavigate = { destination = it },
+            )
+        }
 
-            CatalogDestination.LockScreen -> LockScreenContent()
-            CatalogDestination.ControlCenter -> ControlCenterContent()
-            CatalogDestination.Magnifier -> MagnifierContent()
+        if (!platformHandled) {
+            when (destination) {
+                CatalogDestination.Home -> HomeContent(onNavigate = { destination = it })
 
-            CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
-            CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
-            CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
-            CatalogDestination.ScrollContainer -> ScrollContainerContent()
-            CatalogDestination.LazyScrollContainer -> LazyScrollContainerContent()
+                CatalogDestination.Buttons -> ButtonsContent()
+                CatalogDestination.Toggle -> ToggleContent()
+                CatalogDestination.Slider -> SliderContent()
+                CatalogDestination.BottomTabs -> BottomTabsContent()
+                CatalogDestination.Dialog -> DialogContent()
+
+                CatalogDestination.LockScreen -> LockScreenContent()
+                CatalogDestination.ControlCenter -> ControlCenterContent()
+                CatalogDestination.Magnifier -> MagnifierContent()
+
+                CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
+                CatalogDestination.ColorOsNativeComparison -> Unit
+                CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
+                CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
+                CatalogDestination.ScrollContainer -> ScrollContainerContent()
+                CatalogDestination.LazyScrollContainer -> LazyScrollContainerContent()
+            }
         }
 
         BackHandler(destination != CatalogDestination.Home) {
