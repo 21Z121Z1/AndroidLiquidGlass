@@ -6,6 +6,7 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import android.view.View
+import com.kyant.backdrop.catalog.ColorOsHiddenApiAccess
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.WeakHashMap
@@ -31,6 +32,13 @@ internal class ColorOsClockGlassBridge(context: Context) {
     private val hostContext = context.applicationContext
     private val retained = WeakHashMap<View, Any>()
 
+    init {
+        // Keep this defense in depth for callers that construct the bridge
+        // without going through MainActivity. This runs before the first
+        // vendor helper class is initialized, avoiding its cached null method.
+        ColorOsHiddenApiAccess.enable()
+    }
+
     @Suppress("DEPRECATION")
     private val vendorContextResult = runCatching {
         hostContext.createPackageContext(
@@ -45,6 +53,7 @@ internal class ColorOsClockGlassBridge(context: Context) {
     fun diagnostics(): List<String> = buildList {
         add("package=$CLOCK_PACKAGE")
         add("sdk=${Build.VERSION.SDK_INT}")
+        add(ColorOsHiddenApiAccess.diagnostics())
         add("packageContext=${vendorContextResult.fold({ "loaded:${it.packageName}" }, { "failed:${describeThrowable(it)}" })}")
         if (vendorContextResult.isSuccess) {
             add(classStatus(BUILDER_CLASS))
@@ -112,6 +121,12 @@ internal class ColorOsClockGlassBridge(context: Context) {
         check(Build.VERSION.SDK_INT >= 31) { "RenderEffect requires Android 12+" }
         check(view.width > 0 && view.height > 0) { "view is not laid out" }
         check(!wallpaper.isRecycled && wallpaper.width > 0 && wallpaper.height > 0) { "wallpaper bitmap is unusable" }
+
+        // The vendor helper performs its first hidden RenderEffect lookup from
+        // RenderEffectMultiInput. Exempt that exact class before constructing
+        // GlassEffectBuilder, otherwise it permanently caches a null method.
+        val multiInputClass = Class.forName(MULTI_INPUT_CLASS, false, loader)
+        ColorOsHiddenApiAccess.enable(multiInputClass, ColorOsClockGlassBridge::class.java).getOrThrow()
 
         val builderClass = loader.loadClass(BUILDER_CLASS)
         val builder = builderClass.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
