@@ -3,6 +3,7 @@ package com.kyant.backdrop.catalog
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
@@ -13,7 +14,10 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            MainContent()
+            Box {
+                MainContent()
+                SystemUiExhaustiveLabOverlay()
+            }
         }
     }
 }
