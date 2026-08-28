@@ -35,10 +35,21 @@ fun MainContent() {
     ) {
         var destination by rememberSaveable { mutableStateOf(CatalogDestination.Home) }
 
-        val platformHandled = PlatformCatalogContent(
+        // Android first tries the semantic ColorOS mapping. The older platform
+        // route remains as a compatibility/diagnostic fallback but is no longer
+        // reached for mapped Android destinations.
+        val semanticHandled = SemanticColorOsCatalogContent(
             destination = destination,
             onNavigate = { destination = it },
         )
+        val platformHandled = if (semanticHandled) {
+            true
+        } else {
+            PlatformCatalogContent(
+                destination = destination,
+                onNavigate = { destination = it },
+            )
+        }
 
         if (!platformHandled) {
             when (destination) {
