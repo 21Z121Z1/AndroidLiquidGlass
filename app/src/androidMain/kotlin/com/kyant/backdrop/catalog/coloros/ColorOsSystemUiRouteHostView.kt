@@ -8,7 +8,6 @@ import android.graphics.RuntimeShader
 import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
@@ -16,15 +15,16 @@ import android.widget.TextView
 /**
  * Unified visual host for ColorOsSystemUiExecutionRegistry routes.
  *
- * DIRECT_EXECUTABLE and GL_PIPELINE routes execute the implementation from the installed
- * com.android.systemui package in this View hierarchy. PARAMETER/HOST/SURFACE_CONTROL routes are
- * deliberately not imitated: the host reports their real execution boundary instead.
+ * DIRECT_EXECUTABLE and GL_PIPELINE routes execute code/resources from the installed
+ * com.android.systemui package. PARAMETER_EXECUTOR routes inspect the real vendor class and show
+ * shipping constants/getters/signatures. HOST/SURFACE_CONTROL routes remain explicit boundaries.
  */
 internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(context) {
     private val postEffect = runCatching { ColorOsSystemUiPostEffectBridge(context) }
     private val executable = runCatching { ColorOsSystemUiExecutableBridge(context) }
     private val notificationStroke = runCatching { ColorOsNotificationStrokeBridge(context) }
     private val direct = runCatching { ColorOsSystemUiDirectViewBridge(context) }
+    private val parameterAudit = runCatching { ColorOsSystemUiParameterAuditBridge(context) }
 
     private val backgroundView = ImageView(context).apply {
         scaleType = ImageView.ScaleType.CENTER_CROP
@@ -34,6 +34,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
     private var pendingApply = false
     private var wallpaper: Bitmap? = null
     private var route: ColorOsSystemUiExecutionRegistry.Route? = null
+    private var implementationName: String? = null
     private var radiusPx: Float = 0f
     private var progress: Float = 0.65f
 
@@ -47,11 +48,13 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
 
     fun configure(
         route: ColorOsSystemUiExecutionRegistry.Route?,
+        implementationName: String,
         wallpaper: Bitmap,
         radiusPx: Float,
         progress: Float = 0.65f,
     ) {
         this.route = route
+        this.implementationName = implementationName
         this.wallpaper = wallpaper
         this.radiusPx = radiusPx.coerceAtLeast(0f)
         this.progress = progress.coerceIn(0f, 1f)
@@ -91,9 +94,10 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             return
         }
         val bitmap = wallpaper ?: return
+        val implementation = implementationName.orEmpty()
         if (width <= 0 || height <= 0 || !isAttachedToWindow) return
 
-        val key = "${route.name}:${width}x$height:${System.identityHashCode(bitmap)}:${radiusPx.toInt()}:${(progress * 1000).toInt()}"
+        val key = "${route.name}:$implementation:${width}x$height:${System.identityHashCode(bitmap)}:${radiusPx.toInt()}:${(progress * 1000).toInt()}"
         if (key == currentKey) return
         currentKey = key
         clearRouteChildren()
@@ -101,13 +105,43 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         when (route.kind) {
             ColorOsSystemUiExecutionRegistry.Kind.DIRECT_EXECUTABLE -> runDirect(route, bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.GL_PIPELINE -> runGl(bitmap)
-            ColorOsSystemUiExecutionRegistry.Kind.PARAMETER_EXECUTOR ->
-                showBoundary("PARAMETER_EXECUTOR — ${route.implementation}")
+            ColorOsSystemUiExecutionRegistry.Kind.PARAMETER_EXECUTOR -> runParameterAudit(implementation, route)
             ColorOsSystemUiExecutionRegistry.Kind.HOST_BOUND ->
-                showBoundary("HOST_BOUND — 需要 SystemUI 业务宿主；不做仿制")
+                showBoundary("HOST_BOUND — 需要 SystemUI 业务宿主；不做仿制\n${route.implementation}")
             ColorOsSystemUiExecutionRegistry.Kind.SURFACE_CONTROL_BOUND ->
-                showBoundary("SURFACE_CONTROL_BOUND — 需要系统合成器实时后景；不做仿制")
+                showBoundary("SURFACE_CONTROL_BOUND — 需要系统合成器实时后景；不做仿制\n${route.implementation}")
         }
+    }
+
+    private fun runParameterAudit(implementation: String, route: ColorOsSystemUiExecutionRegistry.Route) {
+        if (implementation.startsWith("assets/") || implementation.startsWith("res/raw/")) {
+            showBoundary("PARAMETER/RESOURCE ROUTE — ${route.implementation}")
+            return
+        }
+        parameterAudit.mapCatching { it.inspect(implementation).getOrThrow() }
+            .onSuccess { snapshot ->
+                val evidence = buildList {
+                    add(snapshot.className)
+                    snapshot.instanceSource?.let { add("instance=$it") }
+                    addAll(snapshot.enumConstants.take(5).map { "enum: $it" })
+                    addAll(snapshot.staticConstants.take(6).map { "const: $it" })
+                    addAll(snapshot.getterValues.take(6).map { "getter: $it" })
+                    addAll(snapshot.methodSignatures.take(8).map { "api: $it" })
+                }
+                val label = TextView(context).apply {
+                    text = evidence.joinToString("\n")
+                    setTextColor(0xFFFFFFFF.toInt())
+                    textSize = 8.5f
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    setPadding(18, 12, 18, 12)
+                    setBackgroundColor(0x88000000.toInt())
+                }
+                addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+                postStatus("PASS — vendor parameter evidence ${snapshot.evidenceCount} entries · ${route.name}")
+            }
+            .onFailure {
+                showBoundary("UNAVAILABLE — parameter audit: ${describe(it)}")
+            }
     }
 
     private fun runDirect(route: ColorOsSystemUiExecutionRegistry.Route, bitmap: Bitmap) {
@@ -159,10 +193,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             }
 
             ColorOsSystemUiExecutionRegistry.Route.RAW_METABALL_SHADER -> executable.mapCatching { bridge ->
-                ShaderSurfaceView(
-                    context,
-                    bridge.createRawMetaballShader(bitmap, width, height, progress).getOrThrow(),
-                )
+                ShaderSurfaceView(context, bridge.createRawMetaballShader(bitmap, width, height, progress).getOrThrow())
             }
 
             ColorOsSystemUiExecutionRegistry.Route.QS_STROKE_SHADER -> executable.mapCatching { bridge ->
