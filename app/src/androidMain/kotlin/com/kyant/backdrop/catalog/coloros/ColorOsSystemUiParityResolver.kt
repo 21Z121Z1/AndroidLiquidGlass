@@ -4,13 +4,48 @@ package com.kyant.backdrop.catalog.coloros
  * Precision layer in front of ColorOsKyantParityContract.
  *
  * The base contract covers visual families broadly. This resolver intercepts infrastructure,
- * host-policy and extra SystemUI material families so they are compared to Kyant at the correct
- * abstraction level instead of being mislabeled as standalone pixel shaders.
+ * host-policy, framework primitives and extra SystemUI material families so they are compared to
+ * Kyant at the correct abstraction level instead of being mislabeled as standalone pixel shaders.
  */
 internal object ColorOsSystemUiParityResolver {
     fun resolve(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): ColorOsKyantParityContract.Contract? {
         val impl = mapping.systemUiImplementation
         val lower = impl.lowercase()
+
+        when (impl) {
+            "com.oplus.graphics.OplusRenderEffect" -> return ColorOsKyantParityContract.Contract(
+                kind = ColorOsKyantParityContract.Kind.MECHANISM,
+                recipe = ColorOsKyantParityContract.Recipe.RUNTIME_EFFECT_GRAPH,
+                primitives = setOf(
+                    ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
+                    ColorOsKyantParityContract.Primitive.BLUR,
+                ),
+                rationale = "OplusRenderEffect 是框架侧 RenderEffect 工厂/组合原语；Kyant 对照到 BackdropEffectScope 的 RenderEffect 图与 blur/runtime shader effect。",
+            )
+            "com.oplus.view.OplusViewBackgroundRenderEffect" -> return ColorOsKyantParityContract.Contract(
+                kind = ColorOsKyantParityContract.Kind.HOST_LIFECYCLE,
+                recipe = ColorOsKyantParityContract.Recipe.BACKDROP_HOST,
+                primitives = setOf(
+                    ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                    ColorOsKyantParityContract.Primitive.BACKDROP_LIFECYCLE,
+                    ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
+                ),
+                rationale = "OplusViewBackgroundRenderEffect 负责把 vendor background RenderEffect 挂到真实 View；Kyant 对照的是 drawBackdrop/Backdrop attach 与生命周期层。",
+            )
+            "com.oplus.view.material.OplusMaterialUtil" -> return ColorOsKyantParityContract.Contract(
+                kind = ColorOsKyantParityContract.Kind.COMPOSITE,
+                recipe = ColorOsKyantParityContract.Recipe.MATERIAL_SURFACE,
+                primitives = setOf(
+                    ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.SHAPE_SDF,
+                    ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+                    ColorOsKyantParityContract.Primitive.INNER_SHADOW,
+                    ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+                ),
+                rationale = "OplusMaterialUtil 是 edge/shadow/caustic 等框架材质参数的下沉层；Kyant 以 Shape/SDF + Highlight + Inner/Outer Shadow 组合对照。",
+            )
+        }
 
         if (isPostEffectInfrastructure(impl)) {
             return ColorOsKyantParityContract.Contract(
