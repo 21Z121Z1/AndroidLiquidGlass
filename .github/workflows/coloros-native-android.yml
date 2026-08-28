@@ -34,6 +34,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify ColorOS SystemUI parity wiring
+        run: python3 tools/check_coloros_parity.py
+
       - name: Assemble Android demo
         run: ./gradlew --stacktrace --no-daemon :androidApp:assembleDebug
 
