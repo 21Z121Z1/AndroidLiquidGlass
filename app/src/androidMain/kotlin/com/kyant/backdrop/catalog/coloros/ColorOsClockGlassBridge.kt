@@ -162,15 +162,15 @@ internal class ColorOsClockGlassBridge(context: Context) {
         val vec2Class = loader.loadClass(VEC2_CLASS)
         val vec4Class = loader.loadClass(VEC4_CLASS)
         val resolution = vec2Class
-            .getDeclaredConstructor(Float::class.javaPrimitiveType, Float::class.javaPrimitiveType)
+            .getDeclaredConstructor(java.lang.Float.TYPE, java.lang.Float.TYPE)
             .apply { isAccessible = true }
             .newInstance(wallpaper.width.toFloat(), wallpaper.height.toFloat())
         val cropRect = vec4Class
             .getDeclaredConstructor(
-                Float::class.javaPrimitiveType,
-                Float::class.javaPrimitiveType,
-                Float::class.javaPrimitiveType,
-                Float::class.javaPrimitiveType
+                java.lang.Float.TYPE,
+                java.lang.Float.TYPE,
+                java.lang.Float.TYPE,
+                java.lang.Float.TYPE
             )
             .apply { isAccessible = true }
             .newInstance(0f, 0f, wallpaper.width.toFloat(), wallpaper.height.toFloat())
@@ -178,8 +178,8 @@ internal class ColorOsClockGlassBridge(context: Context) {
             "setClockRect",
             vec2Class,
             vec4Class,
-            Int::class.javaPrimitiveType,
-            Float::class.javaPrimitiveType
+            java.lang.Integer.TYPE,
+            java.lang.Float.TYPE
         ).apply { isAccessible = true }
         method.invoke(builder, resolution, cropRect, 0, 1f)
     }
