@@ -35,6 +35,32 @@ internal object ColorOsSystemUiExecutionRegistry {
             Kind.DIRECT_EXECUTABLE,
             "ColorOsSystemUiExecutableBridge.createMetaBallPostEffectDrawable()",
         ),
+
+        COUI_MATERIAL_BLUR(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsMaterialBridge.applyBlur() using installed com.oplus.uxdesign preset",
+        ),
+        COUI_MATERIAL_STROKE(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsMaterialBridge.applyStroke() using installed com.oplus.uxdesign preset",
+        ),
+        COUI_SPOTLIGHT(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsMaterialBridge.applySpotLight() using installed com.oplus.uxdesign preset",
+        ),
+        COUI_TOOLBAR_STACK(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsMaterialBridge.applyToolbarStack(blur+stroke+spotlight+caustic)",
+        ),
+        COUI_PROGRESSIVE_BLUR(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsMaterialBridge.applyGradientBlur()/updateGradientBlur()",
+        ),
+        KEYGUARD_GLASS_BUILDER(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsClockGlassSurfaceView -> personality-clocks GlassEffectBuilder -> real RenderEffect",
+        ),
+
         CHROMATIC_SHADER(
             Kind.DIRECT_EXECUTABLE,
             "ColorOsSystemUiPostEffectBridge.applyChromatic()",
@@ -136,12 +162,23 @@ internal object ColorOsSystemUiExecutionRegistry {
             }
         }
 
-        if (impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView") return Route.KEYGUARD_GRADIENT_BLUR_VIEW
-        if (impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar") return Route.QS_BUSINESS_SEEKBAR
-        if (impl == "com.oplus.systemui.volume.OplusVolumeSeekBar") return Route.VOLUME_BUSINESS_SEEKBAR
-        if (impl == "com.oplus.systemui.qs.media.ProgressiveBlurOverlay") return Route.QS_PROGRESSIVE_BLUR_VIEW
-        if (impl == "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer") return Route.NOTIFICATION_TILT_SHIFT_VIEW
-        if (impl == "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams") return Route.QS_MULTI_LIGHT_SHADER
+        when (impl) {
+            "com.coui.appcompat.COUIMaterialBlurEffect" -> return Route.COUI_MATERIAL_BLUR
+            "com.coui.appcompat.COUIMaterialStrokeEffect" -> return Route.COUI_MATERIAL_STROKE
+            "com.coui.appcompat.spotlight.COUISpotLightEffect" -> return Route.COUI_SPOTLIGHT
+            "com.coui.appcompat.toolbar.ToolbarMaterialEffectDelegate" -> return Route.COUI_TOOLBAR_STACK
+            "com.coui.appcompat.toolbar.AppBarBlurHelper" -> return Route.COUI_PROGRESSIVE_BLUR
+            "com.oplus.keyguard.clock.common.view.livecontent.effect.shader.glass.GlassEffectBuilder" ->
+                return Route.KEYGUARD_GLASS_BUILDER
+
+            "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView" -> return Route.KEYGUARD_GRADIENT_BLUR_VIEW
+            "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> return Route.QS_BUSINESS_SEEKBAR
+            "com.oplus.systemui.volume.OplusVolumeSeekBar" -> return Route.VOLUME_BUSINESS_SEEKBAR
+            "com.oplus.systemui.qs.media.ProgressiveBlurOverlay" -> return Route.QS_PROGRESSIVE_BLUR_VIEW
+            "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer" -> return Route.NOTIFICATION_TILT_SHIFT_VIEW
+            "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams" -> return Route.QS_MULTI_LIGHT_SHADER
+        }
+
         if (impl.startsWith("com.oplusos.systemui.common.adapter.MixColor")) return Route.SHIPPING_PRESET_BROWSER
         if (impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider") return Route.BLUR_MIX_RECIPE_EXECUTOR
         if (impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper") return Route.BLUR_MIX_RECIPE_EXECUTOR
