@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/coloros-native-backend
+  pull_request:
+    branches:
+      - kmp
   workflow_dispatch:
 
 permissions:
