@@ -19,6 +19,8 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
     private val notificationStroke = runCatching { ColorOsNotificationStrokeBridge(context) }
     private val direct = runCatching { ColorOsSystemUiDirectViewBridge(context) }
     private val parameterAudit = runCatching { ColorOsSystemUiParameterAuditBridge(context) }
+    private val presetBridge = runCatching { ColorOsSystemUiPresetBridge(context) }
+    private val blurMixBridge = runCatching { ColorOsSystemUiBlurMixBridge(context) }
 
     private val backgroundView = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
     private var currentKey: String? = null
@@ -96,7 +98,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         when (route.kind) {
             ColorOsSystemUiExecutionRegistry.Kind.DIRECT_EXECUTABLE -> runDirect(route, bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.GL_PIPELINE -> runGl(bitmap)
-            ColorOsSystemUiExecutionRegistry.Kind.PARAMETER_EXECUTOR -> runParameterAudit(implementation, route)
+            ColorOsSystemUiExecutionRegistry.Kind.PARAMETER_EXECUTOR -> runParameterRoute(implementation, route, bitmap)
             ColorOsSystemUiExecutionRegistry.Kind.HOST_BOUND ->
                 showBoundary("HOST_BOUND — 需要 SystemUI 业务宿主；不做仿制\n${route.implementation}")
             ColorOsSystemUiExecutionRegistry.Kind.SURFACE_CONTROL_BOUND ->
@@ -104,7 +106,77 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         }
     }
 
-    private fun runParameterAudit(implementation: String, route: ColorOsSystemUiExecutionRegistry.Route) {
+    private fun runParameterRoute(
+        implementation: String,
+        route: ColorOsSystemUiExecutionRegistry.Route,
+        bitmap: Bitmap,
+    ) {
+        when (route) {
+            ColorOsSystemUiExecutionRegistry.Route.SHIPPING_PRESET_BROWSER -> runShippingPreset(implementation, bitmap)
+            ColorOsSystemUiExecutionRegistry.Route.BLUR_MIX_RECIPE_EXECUTOR -> runBlurMixRecipe(implementation, bitmap)
+            else -> runParameterAudit(implementation, route)
+        }
+    }
+
+    private fun runShippingPreset(implementation: String, bitmap: Bitmap) {
+        presetBridge.mapCatching { bridge ->
+            val matching = bridge.presets().filter { it.adapterClass == implementation }
+            require(matching.isNotEmpty()) { "no executable shipping preset binder for $implementation" }
+            val index = ((matching.lastIndex.coerceAtLeast(0)) * progress).toInt().coerceIn(0, matching.lastIndex)
+            val preset = matching[index]
+            val drawable = bridge.createPresetDrawable(
+                bitmap = bitmap,
+                width = width,
+                height = height,
+                cornerRadiusPx = radiusPx,
+                preset = preset,
+            ).getOrThrow()
+            preset to DrawableSurfaceView(context, drawable)
+        }.onSuccess { (preset, child) ->
+            addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            postStatus("PASS — shipping preset ${preset.family}/${preset.methodName} from ${preset.adapterClass}")
+        }.onFailure {
+            // The adapter family may be audit-only on this firmware; keep real evidence instead of
+            // substituting a common tile preset that belongs to a different class.
+            runParameterAudit(implementation, ColorOsSystemUiExecutionRegistry.Route.SHIPPING_PRESET_BROWSER, "preset visual unavailable: ${describe(it)}")
+        }
+    }
+
+    private fun runBlurMixRecipe(implementation: String, bitmap: Bitmap) {
+        blurMixBridge.mapCatching { bridge ->
+            val wantedSource = if (implementation.contains("notification", ignoreCase = true)) {
+                ColorOsSystemUiBlurMixBridge.Source.NOTIFICATION
+            } else {
+                ColorOsSystemUiBlurMixBridge.Source.QS
+            }
+            val directRecipes = bridge.recipes().filter {
+                it.source == wantedSource && it.executionHint == ColorOsSystemUiBlurMixBridge.Execution.DIRECT_SHADER
+            }
+            require(directRecipes.isNotEmpty()) { "no DIRECT_SHADER shipping blur/mix recipe for $wantedSource" }
+            val index = ((directRecipes.lastIndex.coerceAtLeast(0)) * progress).toInt().coerceIn(0, directRecipes.lastIndex)
+            val recipe = directRecipes[index]
+            val drawable = bridge.createDrawable(
+                bitmap = bitmap,
+                width = width,
+                height = height,
+                cornerRadiusPx = radiusPx,
+                recipe = recipe,
+                amount = progress,
+            ).getOrThrow()
+            recipe to DrawableSurfaceView(context, drawable)
+        }.onSuccess { (recipe, child) ->
+            addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            postStatus("PASS — shipping blur/mix ${recipe.label} · ${recipe.source}")
+        }.onFailure {
+            runParameterAudit(implementation, ColorOsSystemUiExecutionRegistry.Route.BLUR_MIX_RECIPE_EXECUTOR, "blur/mix visual unavailable: ${describe(it)}")
+        }
+    }
+
+    private fun runParameterAudit(
+        implementation: String,
+        route: ColorOsSystemUiExecutionRegistry.Route,
+        prefix: String? = null,
+    ) {
         if (implementation.startsWith("assets/") || implementation.startsWith("res/raw/")) {
             showBoundary("PARAMETER/RESOURCE ROUTE — ${route.implementation}")
             return
@@ -112,6 +184,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         parameterAudit.mapCatching { it.inspect(implementation).getOrThrow() }
             .onSuccess { snapshot ->
                 val evidence = buildList {
+                    prefix?.let(::add)
                     add(snapshot.className)
                     snapshot.instanceSource?.let { add("instance=$it") }
                     addAll(snapshot.enumConstants.take(5).map { "enum: $it" })
@@ -142,20 +215,12 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_INNER_SHADOW -> postEffect.mapCatching { bridge ->
                 createPostEffectSurface(bridge, route, bitmap)
             }
-
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_METABALL -> executable.mapCatching { bridge ->
                 DrawableSurfaceView(
                     context,
-                    bridge.createMetaBallPostEffectDrawable(
-                        bitmap = bitmap,
-                        width = width,
-                        height = height,
-                        radiusPx = radiusPx,
-                        phase = progress,
-                    ).getOrThrow(),
+                    bridge.createMetaBallPostEffectDrawable(bitmap, width, height, radiusPx, progress).getOrThrow(),
                 )
             }
-
             ColorOsSystemUiExecutionRegistry.Route.CHROMATIC_SHADER -> postEffect.mapCatching { bridge ->
                 BitmapSurfaceView(context, bitmap).also { child ->
                     child.post {
@@ -164,16 +229,13 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                     }
                 }
             }
-
             ColorOsSystemUiExecutionRegistry.Route.BAR_GLOW_SHADER -> executable.mapCatching { bridge ->
                 BitmapSurfaceView(context, bitmap).also { child ->
                     child.post {
-                        bridge.applyBarGlow(child)
-                            .onFailure { postStatus("UNAVAILABLE — barglow: ${describe(it)}") }
+                        bridge.applyBarGlow(child).onFailure { postStatus("UNAVAILABLE — barglow: ${describe(it)}") }
                     }
                 }
             }
-
             ColorOsSystemUiExecutionRegistry.Route.RAW_METABALL_SHADER -> executable.mapCatching { bridge ->
                 ShaderSurfaceView(context, bridge.createRawMetaballShader(bitmap, width, height, progress).getOrThrow())
             }
