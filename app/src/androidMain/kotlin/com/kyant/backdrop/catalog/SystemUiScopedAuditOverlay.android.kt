@@ -37,6 +37,8 @@ import com.kyant.backdrop.catalog.coloros.ColorOsSystemUiLiquidGlassCatalog
 /**
  * Two-layer view of the high-recall SystemUI scan. Only CORE_MATERIAL participates in the
  * Liquid-Glass coverage gate; ADJACENT_GRAPHICS remains visible for auditability.
+ *
+ * A core row now needs both the semantic mapping and a strongly typed Kyant parity contract.
  */
 @Composable
 fun SystemUiScopedAuditOverlay() {
@@ -77,14 +79,14 @@ fun SystemUiScopedAuditOverlay() {
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 BasicText(
-                    "SystemUI 核心材质 / 相邻图形",
+                    "SystemUI 核心材质 / Kyant 契约",
                     style = TextStyle(Color.White, 21.sp, FontWeight.SemiBold),
                 )
                 ScopeButton("关闭") { open = false }
             }
 
             BasicText(
-                "运行时仍对 SystemUI base/split DEX 和 shader 资源保持高召回扫描，但覆盖率只针对已经能接到 ColorOS 材质调用链的 CORE_MATERIAL。相邻 AOSP ripple、通用 shadow/gradient/shader 不被删除，只是不再拿它们冒充 Liquid Glass 子系统。",
+                "运行时继续扫描 SystemUI base/split DEX 与 shader 资源。CORE_MATERIAL 现在只有在两件事同时成立时才算覆盖：已有明确 SystemUI→Kyant 语义映射，并且能解析成实际 Kyant 原语契约。自由文本不再足以通过闸门。",
                 style = scopeInfoStyle(),
             )
 
@@ -92,7 +94,7 @@ fun SystemUiScopedAuditOverlay() {
 
             ScopeTitle("CORE_MATERIAL · ${core.size}")
             BasicText(
-                "这一层必须全部获得 Kyant 机制映射；能在普通 View/GL 中安全运行的项还会使用 effectiveExecution 下沉为 DIRECT_VIEW/GL_PIPELINE。",
+                "每一行都会显示 Kyant 的实际 API 原语、对照类型和参考 recipe。DIRECT_VIEW/GL_PIPELINE 表示 ColorOS 原实现能在实验层直接执行；HOST/SURFACE_CONTROL 仍保留 Kyant 对照，但不会伪造系统宿主。",
                 style = scopeInfoStyle(),
             )
             core.groupBy { it.mapping.group }.forEach { (group, rows) ->
@@ -107,7 +109,7 @@ fun SystemUiScopedAuditOverlay() {
             if (showAdjacent) {
                 ScopeTitle("ADJACENT_GRAPHICS · ${adjacent.size}")
                 BasicText(
-                    "这些命中用于发现潜在线索，但在没有 ColorOS 材质调用链证据前不进入核心覆盖率，也不会因为名称里有 Shader/Shadow/Gradient 就自动被视作 Liquid Glass。",
+                    "这些命中保留用于发现潜在线索，但在没有 ColorOS 材质调用链证据前不进入核心覆盖率，也不要求生成材质对照契约。",
                     style = scopeInfoStyle(),
                 )
                 adjacent.groupBy { it.mapping.group }.forEach { (group, rows) ->
@@ -134,9 +136,9 @@ private fun CoreGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
     ) {
         BasicText(
             if (summary.coreComplete) {
-                "CORE PASS · ${summary.coreCoveragePercent}%"
+                "CORE PASS · ${summary.coreCoveragePercent}% · semantic + contract"
             } else {
-                "CORE FAIL · ${summary.coreUnmapped} 项未映射"
+                "CORE FAIL · semantic missing ${summary.coreUnmapped} · contract missing ${summary.coreContractMissing}"
             },
             style = TextStyle(color, 15.sp, FontWeight.SemiBold),
         )
@@ -145,9 +147,20 @@ private fun CoreGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
             style = scopeDiagnosticsStyle(),
         )
         BasicText(
-            "核心 mapped ${summary.coreMapped} · available ${summary.coreAvailable} · direct ${summary.coreDirect} · host-bound ${summary.coreHostBound}",
+            "核心 mapped ${summary.coreMapped}/${summary.core} · contracted ${summary.coreContracted}/${summary.core} · available ${summary.coreAvailable}",
             style = scopeDiagnosticsStyle(),
         )
+        BasicText(
+            "direct ${summary.coreDirect} · host-bound ${summary.coreHostBound} · mechanism ${summary.parityMechanism} · composite ${summary.parityComposite}",
+            style = scopeDiagnosticsStyle(),
+        )
+        BasicText(
+            "nearest-only ${summary.parityNearestOnly} · host-lifecycle ${summary.parityHostLifecycle}",
+            style = scopeDiagnosticsStyle(),
+        )
+        summary.missingContracts.forEach {
+            BasicText("MISSING_CONTRACT · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
+        }
     }
 }
 
@@ -173,7 +186,22 @@ private fun ScopedMappingCard(item: ColorOsSystemUiAuditScope.Classified) {
     ) {
         BasicText(row.systemUiImplementation, style = TextStyle(Color.White, 10.sp, FontWeight.Medium))
         BasicText("${item.scope} · ${item.reason}", style = TextStyle(scopeColor, 9.sp))
-        BasicText("↔ Kyant：${row.kyantCounterpart}", style = scopeDiagnosticsStyle())
+        BasicText("↔ Kyant（旧语义）：${row.kyantCounterpart}", style = scopeDiagnosticsStyle())
+
+        if (item.scope == ColorOsSystemUiAuditScope.Scope.CORE_MATERIAL) {
+            val contract = item.parityContract
+            if (contract == null) {
+                BasicText("MISSING_CONTRACT · 未绑定到实际 Kyant API", style = TextStyle(Color(0xFFFF8A80), 9.sp, FontWeight.SemiBold))
+            } else {
+                BasicText(
+                    "PARITY ${contract.kind} · recipe=${contract.recipe}",
+                    style = TextStyle(Color(0xFFC5E1A5), 9.sp, FontWeight.Medium),
+                )
+                BasicText("Kyant API · ${contract.apiSummary}", style = scopeDiagnosticsStyle())
+                BasicText(contract.rationale, style = scopeDiagnosticsStyle())
+            }
+        }
+
         BasicText(
             if (effective == row.executionMode) {
                 "$effective · ${row.status}"
