@@ -4,12 +4,7 @@ import android.content.Context
 
 /**
  * Complete strict-audit inventory = high-recall runtime catalog + explicitly proven material
- * entry points whose class names are not guaranteed to match the catalog's keyword sweep.
- *
- * This is intentionally additive. The DEX/resource scan remains the mechanism for discovering
- * new firmware implementations, while the required rows make it impossible for already-proven
- * business Views/direct probes to disappear merely because their class name lacks "blur",
- * "material", "shader", etc.
+ * entry points whose class names/packages are not guaranteed to match the SystemUI keyword sweep.
  */
 internal class ColorOsSystemUiCompleteInventory(context: Context) {
     companion object {
@@ -81,6 +76,27 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             kyant = "LayerBackdrop/source bitmap + blur surface tint",
             note = "已有 createWallpaperBlurDrawable() 普通 Drawable 执行桥，严格审计按 DIRECT_VIEW 处理。",
         ),
+
+        // Framework-side primitives that SystemUI/COUI material consumers call into. They live
+        // outside the SystemUI APK namespace, so a DEX-name sweep alone can never discover them.
+        capability(
+            group = "外部框架原语 · 强制入口",
+            className = "com.oplus.graphics.OplusRenderEffect",
+            kyant = "BackdropEffectScope RenderEffect graph + blur/progressive blur",
+            note = "SystemUI/COUI 使用的 Oplus RenderEffect 工厂；包含渐变模糊等 vendor RenderEffect 入口。",
+        ),
+        capability(
+            group = "外部框架原语 · 强制入口",
+            className = "com.oplus.view.OplusViewBackgroundRenderEffect",
+            kyant = "Backdrop attach/lifecycle + RenderEffect application",
+            note = "把 vendor background RenderEffect 挂到真实 View 的框架原语；对应 Kyant drawBackdrop/Backdrop attach 层。",
+        ),
+        capability(
+            group = "外部框架原语 · 强制入口",
+            className = "com.oplus.view.material.OplusMaterialUtil",
+            kyant = "Shape/SDF + Highlight + InnerShadow/Shadow material layer",
+            note = "SystemUI/COUI 的 edge/shadow/caustic 等 material 参数最终下沉到该框架工具层。",
+        ),
     )
 
     private fun direct(
@@ -88,11 +104,38 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         className: String,
         kyant: String,
         note: String,
+    ) = mapping(
+        group = group,
+        className = className,
+        kyant = kyant,
+        mode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW,
+        note = note,
+    )
+
+    private fun capability(
+        group: String,
+        className: String,
+        kyant: String,
+        note: String,
+    ) = mapping(
+        group = group,
+        className = className,
+        kyant = kyant,
+        mode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY,
+        note = note,
+    )
+
+    private fun mapping(
+        group: String,
+        className: String,
+        kyant: String,
+        mode: ColorOsSystemUiLiquidGlassCatalog.ExecutionMode,
+        note: String,
     ) = ColorOsSystemUiLiquidGlassCatalog.Mapping(
         group = group,
         systemUiImplementation = className,
         kyantCounterpart = kyant,
-        executionMode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW,
+        executionMode = mode,
         status = classStatus(className),
         note = note,
     )
@@ -106,15 +149,16 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         group.startsWith("核心后处理") -> 0
         group.startsWith("SystemUI 着色器") -> 1
         group.startsWith("SystemUI GL") -> 2
-        group.startsWith("公共模糊") -> 3
-        group.startsWith("通知") -> 4
-        group.startsWith("控制中心") -> 5
-        group.startsWith("音量") -> 6
-        group.startsWith("锁屏") -> 7
-        group.startsWith("壁纸") -> 8
-        group.startsWith("生物识别") -> 9
-        group.startsWith("全局面板") -> 10
-        group.startsWith("Metaball") -> 11
+        group.startsWith("外部框架原语") -> 3
+        group.startsWith("公共模糊") -> 4
+        group.startsWith("通知") -> 5
+        group.startsWith("控制中心") -> 6
+        group.startsWith("音量") -> 7
+        group.startsWith("锁屏") -> 8
+        group.startsWith("壁纸") -> 9
+        group.startsWith("生物识别") -> 10
+        group.startsWith("全局面板") -> 11
+        group.startsWith("Metaball") -> 12
         else -> 20
     }
 
