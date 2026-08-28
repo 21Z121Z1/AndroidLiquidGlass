@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import com.kyant.backdrop.catalog.destinations.AdaptiveLuminanceGlassContent
 import com.kyant.backdrop.catalog.destinations.BottomTabsContent
 import com.kyant.backdrop.catalog.destinations.ButtonsContent
+import com.kyant.backdrop.catalog.destinations.ColorOsNativeComparisonContent
 import com.kyant.backdrop.catalog.destinations.ControlCenterContent
 import com.kyant.backdrop.catalog.destinations.DialogContent
 import com.kyant.backdrop.catalog.destinations.GlassPlaygroundContent
@@ -48,6 +49,7 @@ fun MainContent() {
             CatalogDestination.Magnifier -> MagnifierContent()
 
             CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
+            CatalogDestination.ColorOsNativeComparison -> ColorOsNativeComparisonContent()
             CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
             CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
             CatalogDestination.ScrollContainer -> ScrollContainerContent()
