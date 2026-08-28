@@ -26,8 +26,8 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android 37 SDK
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+      - name: Install Android 17 / API 37 platform
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platform-tools"
 
       - uses: gradle/actions/setup-gradle@v4
 
