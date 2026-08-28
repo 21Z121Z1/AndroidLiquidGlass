@@ -40,9 +40,7 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
 
     fun inspect(className: String): Result<Snapshot> = runCatching {
         val clazz = loader.loadClass(className)
-        val enumConstants = clazz.enumConstants
-            ?.map { (it as Enum<*>).name }
-            .orEmpty()
+        val enumConstants = clazz.enumConstants?.map { (it as Enum<*>).name }.orEmpty()
 
         val staticConstants = clazz.declaredFields
             .asSequence()
@@ -53,9 +51,10 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
             }
             .take(MAX_VALUES)
             .map { field ->
-                field.isAccessible = true
-                val value = runCatching { field.get(null) }
-                    .fold({ formatValue(it) }, { "<${describe(it)}>" })
+                val value = runCatching {
+                    field.isAccessible = true
+                    field.get(null)
+                }.fold({ formatValue(it) }, { "<${describe(it)}>" })
                 "${field.name}=$value"
             }
             .toList()
@@ -66,28 +65,33 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
         } else {
             val receiver = instance.first!!
             (clazz.methods.asSequence() + clazz.declaredMethods.asSequence())
-                .distinctBy { methodSignature(it.name, it.parameterTypes.map(Class<*>::getName), it.returnType.name) }
+                .distinctBy {
+                    methodSignature(it.name, it.parameterTypes.map { type -> type.name }, it.returnType.name)
+                }
                 .filter { method ->
                     !Modifier.isStatic(method.modifiers) &&
                         method.parameterCount == 0 &&
                         method.returnType != Void.TYPE &&
                         isSafeValueType(method.returnType) &&
                         (method.name.startsWith("get") || method.name.startsWith("is")) &&
-                        method.name !in setOf("getClass")
+                        method.name != "getClass"
                 }
                 .sortedBy { it.name }
                 .take(MAX_VALUES)
                 .map { method ->
-                    method.isAccessible = true
-                    val value = runCatching { method.invoke(receiver) }
-                        .fold({ formatValue(it) }, { "<${describe(it)}>" })
+                    val value = runCatching {
+                        method.isAccessible = true
+                        method.invoke(receiver)
+                    }.fold({ formatValue(it) }, { "<${describe(it)}>" })
                     "${method.name}()=$value"
                 }
                 .toList()
         }
 
         val signatures = (clazz.methods.asSequence() + clazz.declaredMethods.asSequence())
-            .distinctBy { methodSignature(it.name, it.parameterTypes.map(Class<*>::getName), it.returnType.name) }
+            .distinctBy {
+                methodSignature(it.name, it.parameterTypes.map { type -> type.name }, it.returnType.name)
+            }
             .filterNot { it.declaringClass == Any::class.java }
             .sortedWith(compareBy({ it.name }, { it.parameterCount }))
             .take(MAX_SIGNATURES)
@@ -116,9 +120,10 @@ internal class ColorOsSystemUiParameterAuditBridge(context: Context) {
             if (instance != null) return instance to "Kotlin object INSTANCE"
         }
 
+        val simpleName = clazz.simpleName.lowercase()
         val looksLikeDataHolder = listOf(
             "params", "param", "config", "group", "state", "mixcolor", "adapter",
-        ).any(clazz.simpleName.lowercase()::contains)
+        ).any { token -> token in simpleName }
         if (!looksLikeDataHolder) return null to null
 
         val ctor = clazz.declaredConstructors.firstOrNull { it.parameterCount == 0 } ?: return null to null
