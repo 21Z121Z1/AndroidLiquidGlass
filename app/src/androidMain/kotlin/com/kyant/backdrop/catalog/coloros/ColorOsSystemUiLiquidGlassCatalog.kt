@@ -4,26 +4,29 @@ import android.content.Context
 import dalvik.system.DexFile
 
 /**
- * SystemUI Liquid-Glass/material implementation inventory.
+ * Exhaustive ColorOS SystemUI Liquid-Glass/material implementation inventory.
  *
- * The catalog has two layers:
- * 1. curated mechanism rows for the implementations whose semantics have been
- *    reverse-engineered and are important enough to describe precisely;
- * 2. an automatic DEX sweep over the installed SystemUI APK(s). Every ColorOS
- *    SystemUI class whose name is related to post-effect/material/blur/stroke/
- *    spotlight/metaball/optics/glow/caustic is added if it was not curated.
+ * There are three discovery layers:
+ * 1. curated rows whose semantics were reverse-engineered and can be described precisely;
+ * 2. a runtime DEX sweep over base + split APKs for ColorOS/SystemUI classes related to
+ *    material, blur, stroke, spotlight, Metaball, optics, glass, shader and shadow;
+ * 3. a recursive shader-resource sweep over assets/*.agsl|*.glsl and res/raw text shaders.
  *
- * This prevents a new subsystem wrapper from silently disappearing from the
- * comparison page when ColorOS changes its SystemUI build.
+ * Every discovered implementation is assigned a Kyant counterpart. "No 1:1" is an explicit
+ * mapping, not an omission. coverageSummary() therefore provides a real audit gate: anything
+ * whose mapping is blank or marked UNMAPPED is counted as a failure.
  */
 internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
     companion object {
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+
         private val DISCOVERY_PREFIXES = listOf(
             "com.oplus.posteffect.",
             "com.oplus.systemui.",
             "com.oplusos.systemui.common.",
+            "com.android.systemui.",
         )
+
         private val DISCOVERY_KEYWORDS = listOf(
             "posteffect",
             "material",
@@ -35,6 +38,43 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "chromatic",
             "glow",
             "caustic",
+            "shader",
+            "shadow",
+            "gradient",
+            "glass",
+            "backdrop",
+        )
+
+        private val SHADER_PATH_KEYWORDS = listOf(
+            "blur",
+            "chromatic",
+            "metaball",
+            "stroke",
+            "shadow",
+            "glow",
+            "optic",
+            "glass",
+            "blend",
+            "display",
+            "bar",
+            "mask",
+        )
+
+        private val SHADER_SOURCE_KEYWORDS = listOf(
+            "chromatic",
+            "metaball",
+            "blur",
+            "stroke",
+            "shadow",
+            "sdf",
+            "optic",
+            "glow",
+            "blendmode",
+            "luminosity",
+            "colordodge",
+            "softlight",
+            "smoothstep",
+            "distance",
         )
     }
 
@@ -55,6 +95,24 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         val note: String,
     )
 
+    data class CoverageSummary(
+        val total: Int,
+        val available: Int,
+        val unavailable: Int,
+        val directView: Int,
+        val surfaceControl: Int,
+        val systemUiHost: Int,
+        val glPipeline: Int,
+        val capabilityOnly: Int,
+        val exactOrMechanismMapped: Int,
+        val noOneToOneButExplicitlyMapped: Int,
+        val unmapped: Int,
+        val unmappedImplementations: List<String>,
+    ) {
+        val complete: Boolean get() = unmapped == 0
+        val coveragePercent: Float get() = if (total == 0) 100f else (total - unmapped) * 100f / total
+    }
+
     @Suppress("DEPRECATION")
     private val packageContextResult = runCatching {
         context.applicationContext.createPackageContext(
@@ -69,13 +127,45 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
     fun mappings(): List<Mapping> {
         val curated = curatedMappings()
         val seen = curated.mapTo(linkedSetOf()) { it.systemUiImplementation }
-        val discovered = discoverGlassClasses()
+
+        val discoveredClasses = discoverGlassClasses()
             .asSequence()
             .filter { it !in seen }
-            .map { autoMapping(it) }
-            .sortedWith(compareBy<Mapping> { it.group }.thenBy { it.systemUiImplementation })
+            .map { autoClassMapping(it) }
             .toList()
-        return curated + discovered
+
+        val seenAfterClasses = seen + discoveredClasses.map { it.systemUiImplementation }
+        val discoveredResources = discoverShaderResources()
+            .asSequence()
+            .filter { it.implementation !in seenAfterClasses }
+            .map { autoResourceMapping(it) }
+            .toList()
+
+        return (curated + discoveredClasses + discoveredResources)
+            .distinctBy { it.systemUiImplementation }
+            .sortedWith(compareBy<Mapping> { groupRank(it.group) }.thenBy { it.group }.thenBy { it.systemUiImplementation })
+    }
+
+    fun coverageSummary(): CoverageSummary {
+        val rows = mappings()
+        val unmappedRows = rows.filter {
+            it.kyantCounterpart.isBlank() || it.kyantCounterpart.startsWith("UNMAPPED", ignoreCase = true)
+        }
+        val noOneToOne = rows.count { "无 1:1" in it.kyantCounterpart || "邻接" in it.kyantCounterpart }
+        return CoverageSummary(
+            total = rows.size,
+            available = rows.count { it.status.startsWith("available") },
+            unavailable = rows.count { !it.status.startsWith("available") },
+            directView = rows.count { it.executionMode == ExecutionMode.DIRECT_VIEW },
+            surfaceControl = rows.count { it.executionMode == ExecutionMode.SURFACE_CONTROL },
+            systemUiHost = rows.count { it.executionMode == ExecutionMode.SYSTEM_UI_HOST },
+            glPipeline = rows.count { it.executionMode == ExecutionMode.GL_PIPELINE },
+            capabilityOnly = rows.count { it.executionMode == ExecutionMode.CAPABILITY_ONLY },
+            exactOrMechanismMapped = rows.size - noOneToOne - unmappedRows.size,
+            noOneToOneButExplicitlyMapped = noOneToOne,
+            unmapped = unmappedRows.size,
+            unmappedImplementations = unmappedRows.map { it.systemUiImplementation },
+        )
     }
 
     private fun curatedMappings(): List<Mapping> = buildList {
@@ -103,7 +193,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         clazz("核心后处理", "com.oplus.posteffect.drawable.ContinuousBlurDrawable", "实时 Backdrop blur", ExecutionMode.SURFACE_CONTROL,
             "构造器直接要求 SurfaceControl，并通过 BlurDrawableManager 更新")
         clazz("核心后处理", "com.oplus.posteffect.drawable.MetaBallBlurDrawable", "无 1:1；Metaball shape + live Backdrop", ExecutionMode.SURFACE_CONTROL,
-            "完整 MetaballBlurDrawable 需要 SurfaceControl；几何 AGSL 已另行在普通 BlendDrawable 验证")
+            "完整 MetaBallBlurDrawable 需要 SurfaceControl；几何 AGSL 已另行在普通 BlendDrawable 验证")
 
         // SystemUI-owned shader assets.
         asset("SystemUI 着色器资产", "chromatic.agsl", "lens(chromaticAberration) 的色散子机制", ExecutionMode.DIRECT_VIEW,
@@ -113,13 +203,13 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         raw("SystemUI 着色器资产", "metaball", "无 1:1；surface texture/light mask", ExecutionMode.DIRECT_VIEW,
             "res/raw/metaball.agsl：圆形范围内旋转纹理遮罩，与 DrawableShader Metaball 几何融合不是同一算法")
         asset("SystemUI GL 模糊", "gaussian_blur_fragment_shader.glsl", "blur()", ExecutionMode.GL_PIPELINE,
-            "可分离高斯模糊")
+            "可分离高斯模糊；Demo 通过 ColorOsSystemUiGlBlurView 直接编译设备 SystemUI shader")
         asset("SystemUI GL 模糊", "blur_down_fragment_shader.glsl", "Backdrop 降采样前级", ExecutionMode.GL_PIPELINE,
-            "中心 4 倍权重 + 四邻域降采样")
+            "中心 4 倍权重 + 四邻域降采样；Demo 直接执行")
         asset("SystemUI GL 模糊", "blur_up_fragment_shader.glsl", "Backdrop 上采样后级", ExecutionMode.GL_PIPELINE,
-            "8 tap 上采样")
+            "8 tap 上采样；Demo 直接执行")
         asset("SystemUI GL 模糊", "display_fragment_shader.glsl", "vibrancy / colorControls / surface tint", ExecutionMode.GL_PIPELINE,
-            "亮度、抖动和 mask/luminosity+dodge/mask+dodge/mask+overlay 合成")
+            "亮度、抖动和多种材质混色；Demo 直接执行完整 FBO 链")
 
         // Common blurability infrastructure.
         clazz("公共模糊基础设施", "com.oplusos.systemui.common.blurability.ViewBlurProxy", "Backdrop host/lifecycle", ExecutionMode.SYSTEM_UI_HOST,
@@ -162,8 +252,8 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "管理胶囊间融合")
         clazz("通知", "com.oplus.systemui.notification.lockscreen.capsule.metaball.MetaBallEarManager", "无 1:1；Shape/SDF 邻接", ExecutionMode.SURFACE_CONTROL,
             "管理胶囊融合耳部形变")
-        clazz("通知", "com.oplus.systemui.notification.lockscreen.capsule.stroke.StrokeShader", "Highlight stroke", ExecutionMode.SYSTEM_UI_HOST,
-            "独立 SDF + near/far 渐变描边")
+        clazz("通知", "com.oplus.systemui.notification.lockscreen.capsule.stroke.StrokeShader", "Highlight stroke", ExecutionMode.DIRECT_VIEW,
+            "独立 SDF + near/far 渐变描边；Demo 通过 ColorOsNotificationStrokeBridge 直接运行原 RuntimeShader")
         clazz("通知", "com.oplus.systemui.notification.blur.NotificationGradientStrokeLineAdapter", "Highlight stroke", ExecutionMode.CAPABILITY_ONLY,
             "通知/锁屏堆叠描边业务参数适配")
         clazz("通知", "com.oplus.systemui.notification.blur.NotificationInnerShadowAdapter", "InnerShadow", ExecutionMode.CAPABILITY_ONLY,
@@ -216,11 +306,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "Metaball 形状上的独立光照渲染器")
     }
 
-    /**
-     * Runtime DEX sweep. The curated table documents semantics; this sweep is a
-     * completeness backstop so every matching ColorOS SystemUI class is visible
-     * in the demo even when a build adds a new wrapper/manager.
-     */
+    /** Runtime DEX sweep across base + split APKs. */
     @Suppress("DEPRECATION")
     private fun discoverGlassClasses(): Set<String> = runCatching {
         val info = packageContext.applicationInfo
@@ -228,6 +314,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             info.sourceDir?.let(::add)
             info.splitSourceDirs?.forEach(::add)
         }.distinct()
+
         buildSet {
             paths.forEach { path ->
                 val dex = DexFile(path)
@@ -237,10 +324,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
                         val rawName = entries.nextElement()
                         val name = rawName.substringBefore('$')
                         val lower = name.lowercase()
-                        if (
-                            DISCOVERY_PREFIXES.any(name::startsWith) &&
-                            DISCOVERY_KEYWORDS.any(lower::contains)
-                        ) {
+                        if (DISCOVERY_PREFIXES.any(name::startsWith) && DISCOVERY_KEYWORDS.any(lower::contains)) {
                             add(name)
                         }
                     }
@@ -251,7 +335,91 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         }
     }.getOrDefault(emptySet())
 
-    private fun autoMapping(className: String): Mapping {
+    private data class ShaderResource(
+        val implementation: String,
+        val source: String,
+        val isGlPipeline: Boolean,
+    )
+
+    /** Recursively scans SystemUI shader assets and text resources. */
+    private fun discoverShaderResources(): Set<ShaderResource> = buildSet {
+        addAll(discoverAssetShaders())
+        addAll(discoverRawShaders())
+    }
+
+    private fun discoverAssetShaders(): Set<ShaderResource> = runCatching {
+        buildSet {
+            fun walk(prefix: String) {
+                val children = packageContext.assets.list(prefix).orEmpty()
+                children.forEach { child ->
+                    val path = if (prefix.isBlank()) child else "$prefix/$child"
+                    val nested = packageContext.assets.list(path).orEmpty()
+                    if (nested.isNotEmpty()) {
+                        walk(path)
+                    } else if (path.endsWith(".agsl", true) || path.endsWith(".glsl", true)) {
+                        val source = runCatching {
+                            packageContext.assets.open(path).use(::readTextPrefix)
+                        }.getOrDefault("")
+                        if (isRelevantShader(path, source)) {
+                            add(
+                                ShaderResource(
+                                    implementation = "assets/$path",
+                                    source = source,
+                                    isGlPipeline = path.endsWith(".glsl", true),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+            walk("")
+        }
+    }.getOrDefault(emptySet())
+
+    private fun discoverRawShaders(): Set<ShaderResource> = runCatching {
+        val rawClass = loader.loadClass("$SYSTEM_UI_PACKAGE.R\$raw")
+        buildSet {
+            rawClass.declaredFields.forEach { field ->
+                if (field.type != Int::class.javaPrimitiveType) return@forEach
+                field.isAccessible = true
+                val id = field.getInt(null)
+                val source = runCatching {
+                    packageContext.resources.openRawResource(id).use(::readTextPrefix)
+                }.getOrDefault("")
+                if (source.isNotBlank() && isRelevantShader(field.name, source)) {
+                    add(
+                        ShaderResource(
+                            implementation = "res/raw/${field.name}",
+                            source = source,
+                            isGlPipeline = "sampler2d" in source.lowercase() || "#version" in source.lowercase(),
+                        ),
+                    )
+                }
+            }
+        }
+    }.getOrDefault(emptySet())
+
+    private fun readTextPrefix(input: java.io.InputStream, maxChars: Int = 64 * 1024): String {
+        val reader = input.bufferedReader()
+        val buffer = CharArray(4096)
+        val out = StringBuilder(minOf(maxChars, 16 * 1024))
+        while (out.length < maxChars) {
+            val count = reader.read(buffer, 0, minOf(buffer.size, maxChars - out.length))
+            if (count <= 0) break
+            out.append(buffer, 0, count)
+        }
+        return out.toString()
+    }
+
+    private fun isRelevantShader(path: String, source: String): Boolean {
+        val pathLower = path.lowercase()
+        if (SHADER_PATH_KEYWORDS.any(pathLower::contains)) return true
+        val sourceLower = source.lowercase()
+        val hits = SHADER_SOURCE_KEYWORDS.count(sourceLower::contains)
+        return hits >= 2
+    }
+
+    private fun autoClassMapping(className: String): Mapping {
         val lower = className.lowercase()
         val mode = when {
             className in DIRECT_CLASSES -> ExecutionMode.DIRECT_VIEW
@@ -269,7 +437,35 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             kyantCounterpart = autoKyantCounterpart(className),
             executionMode = mode,
             status = classStatus(className),
-            note = "自动从当前安装的 SystemUI DEX 发现；列出以保证覆盖完整性。业务宿主未在第三方进程中伪造。",
+            note = "自动从当前安装的 SystemUI DEX 发现；已强制分配 Kyant 机制或显式“无 1:1”映射。业务宿主不在第三方进程中伪造。",
+        )
+    }
+
+    private fun autoResourceMapping(resource: ShaderResource): Mapping {
+        val lower = (resource.implementation + "\n" + resource.source).lowercase()
+        val kyant = when {
+            "chromatic" in lower -> "lens(chromaticAberration) 色散子机制"
+            "metaball" in lower -> "无 1:1；最近为 Shape/SDF + Highlight 架构"
+            "stroke" in lower -> "Highlight / stroke"
+            "innershadow" in lower || "shadow" in lower -> "InnerShadow / Shadow"
+            "glow" in lower || "bar" in resource.implementation.lowercase() -> "Highlight / edge glow（可能无 1:1）"
+            "blur" in lower -> "blur() + Backdrop sampling"
+            "luminosity" in lower || "colordodge" in lower || "softlight" in lower || "blend" in lower || "display" in lower ->
+                "vibrancy / colorControls / surface tint"
+            "sdf" in lower || "distance" in lower -> "RoundedRectangle / Shape SDF"
+            else -> "无 1:1；仅实现邻接对照"
+        }
+        return Mapping(
+            group = if (resource.isGlPipeline) "自动发现 · SystemUI GL 着色器" else "自动发现 · SystemUI RuntimeShader",
+            systemUiImplementation = resource.implementation,
+            kyantCounterpart = kyant,
+            executionMode = if (resource.isGlPipeline) ExecutionMode.GL_PIPELINE else ExecutionMode.DIRECT_VIEW,
+            status = if (resource.implementation.startsWith("assets/")) {
+                assetStatus(resource.implementation.removePrefix("assets/"))
+            } else {
+                "available:text-resource"
+            },
+            note = "自动扫描当前 SystemUI shader 资源；按 shader 语义映射到 Kyant。没有 1:1 primitive 时明确记录，不静默遗漏。",
         )
     }
 
@@ -293,15 +489,34 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
             "metaball" in lower -> "无 1:1；最近为 Shape/SDF + Highlight 架构"
             "spotlight" in lower -> "InteractiveHighlight"
             "innershadow" in lower -> "InnerShadow"
-            "stroke" in lower -> "Highlight / stroke"
+            "shadow" in lower -> "Shadow / InnerShadow"
+            "stroke" in lower || "gradient" in lower -> "Highlight / stroke"
             "optic" in lower -> "Highlight / edge optics（无 1:1）"
-            "materialcolor" in lower || "mixcolor" in lower -> "vibrancy / colorControls / surface tint"
-            "blur" in lower -> "blur() + Backdrop acquisition/lifecycle"
+            "chromatic" in lower -> "lens(chromaticAberration) 色散子机制"
+            "materialcolor" in lower || "mixcolor" in lower || "blend" in lower -> "vibrancy / colorControls / surface tint"
+            "blur" in lower || "backdrop" in lower -> "blur() + Backdrop acquisition/lifecycle"
             "glow" in lower -> "Highlight"
-            "posteffect" in lower -> "runtimeShaderEffect / drawBackdrop effect graph"
+            "shader" in lower || "posteffect" in lower -> "runtimeShaderEffect / drawBackdrop effect graph"
+            "glass" in lower -> "lens + blur + surface tint 组合"
             "material" in lower -> "drawBackdrop material composition"
-            else -> "无明确 1:1；仅实现邻接对照"
+            else -> "无 1:1；仅实现邻接对照"
         }
+    }
+
+    private fun groupRank(group: String): Int = when {
+        group == "核心后处理" -> 0
+        group == "SystemUI 着色器资产" -> 1
+        group == "SystemUI GL 模糊" -> 2
+        group == "公共模糊基础设施" -> 3
+        group == "通知" -> 4
+        group == "控制中心/QS" -> 5
+        group == "音量面板" -> 6
+        group == "壁纸" -> 7
+        group == "生物识别" -> 8
+        group == "全局面板" -> 9
+        group == "Metaball 光照" -> 10
+        group.startsWith("自动发现") -> 20
+        else -> 15
     }
 
     private fun MutableList<Mapping>.clazz(
@@ -365,6 +580,7 @@ internal class ColorOsSystemUiLiquidGlassCatalog(context: Context) {
         "com.oplus.posteffect.params.CustomClip",
         "com.oplus.posteffect.agsl.ShaderBlendParam",
         "com.oplus.posteffect.ForegroundBlurParam",
+        "com.oplus.systemui.notification.lockscreen.capsule.stroke.StrokeShader",
         "com.oplus.systemui.qs.base.widget.strokeshader.GradientStrokeShader",
         "com.oplus.systemui.volume.utils.material.VolumeGradientStrokeShader",
     )
