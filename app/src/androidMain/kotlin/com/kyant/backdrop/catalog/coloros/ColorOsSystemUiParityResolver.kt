@@ -10,6 +10,7 @@ internal object ColorOsSystemUiParityResolver {
         val lower = impl.lowercase()
 
         couiPresetContract(impl)?.let { return it }
+        systemUiShippingContract(mapping)?.let { return it }
 
         when (impl) {
             "com.oplus.graphics.OplusRenderEffect" -> return contract(
@@ -38,7 +39,6 @@ internal object ColorOsSystemUiParityResolver {
                 ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
                 rationale = "OplusMaterialUtil 是 edge/shadow/caustic 等框架材质参数下沉层。",
             )
-
             "com.coui.appcompat.COUIMaterialBlurEffect" -> return contract(
                 ColorOsKyantParityContract.Kind.COMPOSITE,
                 ColorOsKyantParityContract.Recipe.BLUR_COLOR_MIX,
@@ -99,20 +99,16 @@ internal object ColorOsSystemUiParityResolver {
             )
         }
 
-        if (mapping.group.startsWith("自动发现 · 外部")) {
-            return externalDiscoveredContract(mapping)
-        }
+        if (mapping.group.startsWith("自动发现 · 外部")) return externalDiscoveredContract(mapping)
 
-        if (isPostEffectInfrastructure(impl)) {
-            return contract(
-                ColorOsKyantParityContract.Kind.HOST_LIFECYCLE,
-                ColorOsKyantParityContract.Recipe.BACKDROP_HOST,
-                ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
-                ColorOsKyantParityContract.Primitive.BACKDROP_LIFECYCLE,
-                ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
-                rationale = "该 PostEffect 类负责配置、连接、资源/状态管理或接口契约；Kyant 在 Backdrop 生命周期/effect graph 层对照。",
-            )
-        }
+        if (isPostEffectInfrastructure(impl)) return contract(
+            ColorOsKyantParityContract.Kind.HOST_LIFECYCLE,
+            ColorOsKyantParityContract.Recipe.BACKDROP_HOST,
+            ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+            ColorOsKyantParityContract.Primitive.BACKDROP_LIFECYCLE,
+            ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
+            rationale = "该 PostEffect 类负责配置、连接、资源/状态管理或接口契约；Kyant 在 Backdrop 生命周期/effect graph 层对照。",
+        )
 
         if (impl.startsWith("com.oplusos.systemui.common.util.")) {
             when {
@@ -208,6 +204,73 @@ internal object ColorOsSystemUiParityResolver {
         )
 
         return ColorOsKyantParityContract.resolve(mapping)
+    }
+
+    private fun systemUiShippingContract(
+        mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
+    ): ColorOsKyantParityContract.Contract? {
+        val impl = mapping.systemUiImplementation
+        if (impl.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)) {
+            val id = impl.removePrefix(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)
+            return when {
+                ":OPTICS:" in id -> contract(
+                    ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+                    ColorOsKyantParityContract.Recipe.EDGE_OPTICS,
+                    ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.SHAPE_SDF,
+                    ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+                    rationale = "该行是一个 exact SystemUI Optics getter 返回值；ColorOS 执行真实参数对象，Kyant 只以 SDF/Highlight 作最近边缘光学参考，不把它误标成背景折射。",
+                )
+                ":INNER_SHADOW:" in id -> contract(
+                    ColorOsKyantParityContract.Kind.MECHANISM,
+                    ColorOsKyantParityContract.Recipe.INNER_SHADOW,
+                    ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.INNER_SHADOW,
+                    rationale = "该行是一个 exact SystemUI InnerShadow getter 返回值；Kyant 以 InnerShadow 对照同类机制，参数曲线不硬编码复刻。",
+                )
+                ":STROKE:" in id -> contract(
+                    ColorOsKyantParityContract.Kind.MECHANISM,
+                    ColorOsKyantParityContract.Recipe.STROKE,
+                    ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.SHAPE_SDF,
+                    ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+                    rationale = "该行是一个 exact SystemUI GradientStrokeLine getter 返回值；Kyant 对照 Shape/SDF + Highlight 的边缘机制。",
+                )
+                else -> contract(
+                    ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+                    ColorOsKyantParityContract.Recipe.RUNTIME_EFFECT_GRAPH,
+                    ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
+                    rationale = "未知 shipping material recipe family；保留 effect-graph 最近参考并在 ColorOS 侧执行原参数对象。",
+                )
+            }
+        }
+
+        if (impl.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX)) {
+            return if (mapping.executionMode == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST) {
+                contract(
+                    ColorOsKyantParityContract.Kind.HOST_LIFECYCLE,
+                    ColorOsKyantParityContract.Recipe.BLUR_COLOR_MIX,
+                    ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                    ColorOsKyantParityContract.Primitive.BACKDROP_LIFECYCLE,
+                    ColorOsKyantParityContract.Primitive.BLUR,
+                    ColorOsKyantParityContract.Primitive.SURFACE_TINT,
+                    rationale = "该 exact BlurMix recipe 是 shipping host-only 配方：没有可直接注入的 shader params；Kyant 只在 backdrop/blur/tint 生命周期层对照，不伪造 direct shader。",
+                )
+            } else {
+                contract(
+                    ColorOsKyantParityContract.Kind.COMPOSITE,
+                    ColorOsKyantParityContract.Recipe.BLUR_COLOR_MIX,
+                    ColorOsKyantParityContract.Primitive.DRAW_PLAIN_BACKDROP,
+                    ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                    ColorOsKyantParityContract.Primitive.BLUR,
+                    ColorOsKyantParityContract.Primitive.VIBRANCY,
+                    ColorOsKyantParityContract.Primitive.COLOR_CONTROLS,
+                    ColorOsKyantParityContract.Primitive.SURFACE_TINT,
+                    rationale = "该行是一个 exact SystemUI BlurMix direct-shader recipe；ColorOS 运行真实 Config → ShaderBlendParamHelper → BlendDrawable，Kyant 对照 blur + color mix 组成机制。",
+                )
+            }
+        }
+        return null
     }
 
     private fun couiPresetContract(impl: String): ColorOsKyantParityContract.Contract? = when {
