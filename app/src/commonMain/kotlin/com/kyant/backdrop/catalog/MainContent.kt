@@ -35,25 +35,32 @@ fun MainContent() {
     ) {
         var destination by rememberSaveable { mutableStateOf(CatalogDestination.Home) }
 
-        when (destination) {
-            CatalogDestination.Home -> HomeContent(onNavigate = { destination = it })
+        val platformHandled = PlatformCatalogContent(
+            destination = destination,
+            onNavigate = { destination = it },
+        )
 
-            CatalogDestination.Buttons -> ButtonsContent()
-            CatalogDestination.Toggle -> ToggleContent()
-            CatalogDestination.Slider -> SliderContent()
-            CatalogDestination.BottomTabs -> BottomTabsContent()
-            CatalogDestination.Dialog -> DialogContent()
+        if (!platformHandled) {
+            when (destination) {
+                CatalogDestination.Home -> HomeContent(onNavigate = { destination = it })
 
-            CatalogDestination.LockScreen -> LockScreenContent()
-            CatalogDestination.ControlCenter -> ControlCenterContent()
-            CatalogDestination.Magnifier -> MagnifierContent()
+                CatalogDestination.Buttons -> ButtonsContent()
+                CatalogDestination.Toggle -> ToggleContent()
+                CatalogDestination.Slider -> SliderContent()
+                CatalogDestination.BottomTabs -> BottomTabsContent()
+                CatalogDestination.Dialog -> DialogContent()
 
-            CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
-            CatalogDestination.ColorOsNativeComparison -> ColorOsNativeComparisonContent()
-            CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
-            CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
-            CatalogDestination.ScrollContainer -> ScrollContainerContent()
-            CatalogDestination.LazyScrollContainer -> LazyScrollContainerContent()
+                CatalogDestination.LockScreen -> LockScreenContent()
+                CatalogDestination.ControlCenter -> ControlCenterContent()
+                CatalogDestination.Magnifier -> MagnifierContent()
+
+                CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
+                CatalogDestination.ColorOsNativeComparison -> ColorOsNativeComparisonContent()
+                CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
+                CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
+                CatalogDestination.ScrollContainer -> ScrollContainerContent()
+                CatalogDestination.LazyScrollContainer -> LazyScrollContainerContent()
+            }
         }
 
         BackHandler(destination != CatalogDestination.Home) {
