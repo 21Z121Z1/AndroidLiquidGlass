@@ -52,9 +52,7 @@ internal object ColorOsSystemUiAuditScope {
                 coreRouteIncompatible == 0
 
         val coreCoveragePercent: Float
-            get() = if (core == 0) 100f else {
-                minOf(coreMapped, coreContracted, coreRouted) * 100f / core
-            }
+            get() = if (core == 0) 100f else minOf(coreMapped, coreContracted, coreRouted) * 100f / core
     }
 
     data class Classified(
@@ -70,19 +68,28 @@ internal object ColorOsSystemUiAuditScope {
         val lower = impl.lowercase()
 
         val coreReason = when {
-            impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 核心"
+            impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
             impl.startsWith("com.oplusos.systemui.common.blurability.") -> "ColorOS SystemUI blurability 核心"
             impl.startsWith("com.oplusos.systemui.common.adapter.MixColor") -> "SystemUI shipping 材质预设适配器"
             impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider" -> "QS shipping blur/mix 配方入口"
             impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper" -> "SystemUI shader blend 参数更新器"
-            impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView" -> "锁屏渐变模糊遮罩；材质核心但不是折射"
+            impl.startsWith("com.oplusos.systemui.common.util.") &&
+                listOf("blur", "stroke", "material").any(lower::contains) -> "SystemUI 公共材质参数/模糊工具"
+
             impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> "QS 真实业务 View；onDraw 进入 QsSeekBarBlurManager"
             impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 VolumeBarMaterialHost/StrokeRenderer"
-            ".notification.blur." in impl -> "通知材质 blur/mix 子系统"
-            ".notification.material." in impl -> "通知材质子系统"
-            ".notification.lockscreen.capsule." in impl &&
-                listOf("stroke", "metaball", "spotlight", "material", "blur").any(lower::contains) ->
-                "锁屏通知胶囊材质子系统"
+
+            impl.startsWith("com.oplus.systemui.notification.") &&
+                listOf("material", "blur", "stroke", "spotlight", "metaball", "optic").any(lower::contains) ->
+                "通知完整材质子系统"
+
+            impl.startsWith("com.oplus.systemui.keyguard.") &&
+                listOf("material", "gradientmask", "multilayerblur").any(lower::contains) ->
+                "锁屏材质/渐变模糊子系统"
+
+            impl.startsWith("com.oplus.systemui.blur.") -> "SystemUI Oplus 模糊/颜色基础设施"
+            "oplusqsdialogblur" in lower -> "QS 对话框模糊背景"
+
             ".qs." in impl && listOf(
                 "blur", "material", "spotlight", "stroke", "metaball", "multilight", "progressive",
             ).any(lower::contains) -> "控制中心/QS 材质子系统"
@@ -119,7 +126,7 @@ internal object ColorOsSystemUiAuditScope {
             mapping = mapping,
             scope = Scope.CORE_MATERIAL,
             reason = coreReason,
-            parityContract = ColorOsKyantParityContract.resolve(mapping),
+            parityContract = ColorOsSystemUiParityResolver.resolve(mapping),
             executionRoute = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective),
         )
     }
@@ -133,9 +140,7 @@ internal object ColorOsSystemUiAuditScope {
             mapping.executionMode
         }
 
-    fun classifyAll(
-        rows: List<ColorOsSystemUiLiquidGlassCatalog.Mapping>,
-    ): List<Classified> = rows.map(::classify)
+    fun classifyAll(rows: List<ColorOsSystemUiLiquidGlassCatalog.Mapping>): List<Classified> = rows.map(::classify)
 
     fun summary(rows: List<ColorOsSystemUiLiquidGlassCatalog.Mapping>): ScopedSummary {
         val classified = classifyAll(rows)
