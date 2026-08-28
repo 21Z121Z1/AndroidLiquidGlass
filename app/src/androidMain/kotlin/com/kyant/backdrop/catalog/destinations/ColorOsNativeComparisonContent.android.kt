@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.graphics.Shader
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.ViewTreeObserver
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -185,6 +186,9 @@ private class ColorOsClockGlassHostView(context: Context) : View(context) {
     private var mask = 1f
     private var light = true
     private var lastKey: String? = null
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener {
+        applyIfReady()
+    }
 
     var onStatus: ((String) -> Unit)? = null
 
@@ -201,6 +205,7 @@ private class ColorOsClockGlassHostView(context: Context) : View(context) {
             null
         }
         paint.color = encodedColor ?: AndroidColor.TRANSPARENT
+        viewTreeObserver.addOnScrollChangedListener(scrollListener)
     }
 
     fun configure(bitmap: Bitmap, glass: Float, mix: Float, mask: Float, light: Boolean) {
@@ -227,6 +232,9 @@ private class ColorOsClockGlassHostView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         bridge.clear(this)
+        if (viewTreeObserver.isAlive) {
+            viewTreeObserver.removeOnScrollChangedListener(scrollListener)
+        }
         super.onDetachedFromWindow()
     }
 
@@ -240,7 +248,9 @@ private class ColorOsClockGlassHostView(context: Context) : View(context) {
             paint.color = it
         }
         if (width <= 0 || height <= 0) return
-        val key = "${System.identityHashCode(bg)}:$width:$height:$color:$glass:$mix:$mask:$light"
+        val screenLocation = IntArray(2)
+        getLocationOnScreen(screenLocation)
+        val key = "${System.identityHashCode(bg)}:$width:$height:${screenLocation[0]}:${screenLocation[1]}:$color:$glass:$mix:$mask:$light"
         if (key == lastKey) return
         lastKey = key
         bridge.apply(this, bg, glass, mix, mask, light)

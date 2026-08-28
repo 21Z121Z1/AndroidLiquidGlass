@@ -140,7 +140,7 @@ internal class ColorOsClockGlassBridge(context: Context) {
             // the vendor state-mix machinery active without introducing a
             // background difference between the two material states.
             invokeRequired(builder, "setWallpaperBg", wallpaper, wallpaper)
-            applyWallpaperGeometry(builder, wallpaper)
+            applyWallpaperGeometry(builder, wallpaper, view)
 
             invokeRequired(builder, "setGlass", glass.coerceIn(0f, 1f))
             invokeRequired(builder, "setMixProgress", mixProgress.coerceIn(0f, 1f))
@@ -179,10 +179,16 @@ internal class ColorOsClockGlassBridge(context: Context) {
      * setClockRect(Vec2 wallpaperResolution, Vec4 wallpaperCropRect,
      *              int wallpaperContentRotation, float contentDisplayScale)
      *
-     * The comparison bitmap is already normalized to display orientation, so
-     * it has a full-frame crop, zero content rotation and unit display scale.
+     * The comparison bitmap is normalized to the physical display coordinate
+     * space. Unlike ColorOS's lock-screen root mount view, our host is a small
+     * card inside a scrolling column, so the crop must be the host View's
+     * screen-space rectangle. Passing a full-screen crop here would apply a
+     * non-uniform view-to-wallpaper scale and squeeze the entire portrait
+     * wallpaper into the card.
      */
-    private fun applyWallpaperGeometry(builder: Any, wallpaper: Bitmap) {
+    private fun applyWallpaperGeometry(builder: Any, wallpaper: Bitmap, view: View) {
+        val screenLocation = IntArray(2)
+        view.getLocationOnScreen(screenLocation)
         val vec2Class = loader.loadClass(VEC2_CLASS)
         val vec4Class = loader.loadClass(VEC4_CLASS)
         val resolution = vec2Class
@@ -197,7 +203,12 @@ internal class ColorOsClockGlassBridge(context: Context) {
                 java.lang.Float.TYPE
             )
             .apply { isAccessible = true }
-            .newInstance(0f, 0f, wallpaper.width.toFloat(), wallpaper.height.toFloat())
+            .newInstance(
+                screenLocation[0].toFloat(),
+                screenLocation[1].toFloat(),
+                view.width.toFloat(),
+                view.height.toFloat()
+            )
         val method = builder.javaClass.getDeclaredMethod(
             "setClockRect",
             vec2Class,
