@@ -156,7 +156,8 @@ internal object ColorOsSystemUiAuditScope {
         }
 
         val effective = effectiveExecution(mapping)
-        val contract = ColorOsSystemUiParityResolver.resolve(mapping)
+        val contract = ColorOsSystemUiInteractiveParityResolver.resolve(mapping)
+            ?: ColorOsSystemUiParityResolver.resolve(mapping)
         val route = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective)
         return Classified(
             mapping,
