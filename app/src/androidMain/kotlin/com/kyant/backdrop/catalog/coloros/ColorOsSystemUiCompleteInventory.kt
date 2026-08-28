@@ -175,7 +175,23 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             "lens(refraction + chromaticAberration) + blur + Highlight",
             "直接加载 personality.clocks 的 GlassEffectBuilder；返回真实 android.graphics.RenderEffect。",
         ),
-    )
+    ) + integratedRequiredMappings()
+
+    private fun integratedRequiredMappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> =
+        ColorOsSystemUiIntegratedExecution.allBindings().map { binding ->
+            mapping(
+                group = "SystemUI DIRECT_INTEGRATED · 强制入口",
+                className = binding.implementation,
+                kyant = when {
+                    "spotlight" in binding.implementation.lowercase() -> "InteractiveHighlight nearest mechanism"
+                    "stroke" in binding.implementation.lowercase() -> "Shape/SDF + Highlight stroke"
+                    "materialhost" in binding.implementation.lowercase() -> "drawBackdrop material surface"
+                    else -> "Backdrop blur/material mechanism via shipping consumer"
+                },
+                mode = ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW,
+                note = "DIRECT_INTEGRATED via ${binding.consumer}: ${binding.evidence}; helper 本身不伪装成独立 View。",
+            )
+        }
 
     private fun direct(group: String, className: String, kyant: String, note: String) = mapping(
         group, className, kyant, ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW, note,
@@ -219,16 +235,17 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
         group.startsWith("外部 COUI") -> 4
         group.startsWith("SystemUI shipping recipe") -> 5
         group.startsWith("SystemUI interactive shipping recipe") -> 6
-        group.startsWith("公共模糊") -> 7
-        group.startsWith("通知") -> 8
-        group.startsWith("控制中心") -> 9
-        group.startsWith("音量") -> 10
-        group.startsWith("锁屏插件") -> 11
-        group.startsWith("锁屏") -> 12
-        group.startsWith("壁纸") -> 13
-        group.startsWith("生物识别") -> 14
-        group.startsWith("全局面板") -> 15
-        group.startsWith("Metaball") -> 16
+        group.startsWith("SystemUI DIRECT_INTEGRATED") -> 7
+        group.startsWith("公共模糊") -> 8
+        group.startsWith("通知") -> 9
+        group.startsWith("控制中心") -> 10
+        group.startsWith("音量") -> 11
+        group.startsWith("锁屏插件") -> 12
+        group.startsWith("锁屏") -> 13
+        group.startsWith("壁纸") -> 14
+        group.startsWith("生物识别") -> 15
+        group.startsWith("全局面板") -> 16
+        group.startsWith("Metaball") -> 17
         group.startsWith("自动发现 · 外部") -> 19
         group.startsWith("自动发现") -> 20
         else -> 25
