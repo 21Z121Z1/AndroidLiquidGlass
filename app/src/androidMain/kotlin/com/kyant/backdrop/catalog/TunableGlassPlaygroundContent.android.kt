@@ -79,6 +79,7 @@ private fun ColorOsTunableGlassPlayground() {
     var status by remember { mutableStateOf("Waiting for ColorOS tunable shader…") }
     var imageError by remember { mutableStateOf<String?>(null) }
     var showColorRecipes by remember { mutableStateOf(false) }
+    var showAuthoringNotes by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -174,7 +175,7 @@ private fun ColorOsTunableGlassPlayground() {
 
                 ParameterSection("软距离场 / 模糊")
                 TuningText(
-                    "控制 u_BlurClockTex。系统优化版默认 10 × 10 px；拖动时只重建模糊节点和 ColorOS 多输入 RenderEffect，不重编译着色器。",
+                    "这里是量产 GlassEffectBuilder 实际使用的 10 px 时钟蒙版模糊，用来生成 u_BlurClockTex/软距离场；它不是壁纸背景模糊。拖动时只重建模糊节点和 ColorOS 多输入 RenderEffect。",
                     color = Color.White.copy(alpha = 0.68f),
                     size = 11,
                 )
@@ -248,6 +249,16 @@ private fun ColorOsTunableGlassPlayground() {
                     ColorEditor("HAS_COLON_DARK_TOP", params.hasColonDarkTop) { params = params.copy(hasColonDarkTop = it) }
                     ColorEditor("HAS_COLON_DARK_MIDDLE", params.hasColonDarkMiddle) { params = params.copy(hasColonDarkMiddle = it) }
                     ColorEditor("HAS_COLON_DARK_BOT", params.hasColonDarkBottom) { params = params.copy(hasColonDarkBottom = it) }
+                }
+
+                ParameterSection("作者工程参数说明")
+                BoolControl("显示 clock.coz 中已被量产优化版移除的参数", showAuthoringNotes) { showAuthoringNotes = it }
+                if (showAuthoringNotes) {
+                    TuningText(
+                        "原始 clock.coz 作者工程还出现 u_RefractOffset、u_StrokeOffset、u_GlowSaturation、u_GlowContrast、BoxBlur kernel/radius 等控制量；当前 classes2.dex 的量产 AGSL 已把这些接口优化掉或改写成另一套数学。这里不把它们伪装成量产运行时参数。需要的话应单独增加“作者工程模式”，而不是修改当前固件模式的语义。",
+                        color = Color(0xFFFFCC80),
+                        size = 11,
+                    )
                 }
 
                 Spacer(Modifier.height(24.dp))
