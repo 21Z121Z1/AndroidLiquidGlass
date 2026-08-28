@@ -9,6 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {
     "inventory": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiCompleteInventory.kt",
+    "external_catalog": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsExternalLiquidGlassCatalog.kt",
+    "coui_presets": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsCouiPresetInventory.kt",
+    "parameter_audit": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParameterAuditBridge.kt",
     "scope": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiAuditScope.kt",
     "resolver": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiParityResolver.kt",
     "registry": ROOT / "app/src/androidMain/kotlin/com/kyant/backdrop/catalog/coloros/ColorOsSystemUiExecutionRegistry.kt",
@@ -68,6 +71,29 @@ for primitive in cross_package_visual_primitives:
     require("scope", primitive, "cross-package visual primitive must participate in CORE_MATERIAL gate")
     require("resolver", primitive, "cross-package visual primitive must have a concrete Kyant contract")
 
+# High-recall external discovery is part of correctness, not optional diagnostics.
+for token in ["DexFile", "UX_PACKAGE", "CLOCK_PACKAGE", "external://", "discoverAssetShaders", "discoverRawShaders"]:
+    require("external_catalog", token, "external uxdesign/personality-clocks DEX+shader discovery must remain enabled")
+require("inventory", "ColorOsExternalLiquidGlassCatalog", "external runtime discoveries must merge into strict inventory")
+require("scope", 'mapping.group.startsWith("自动发现 · 外部")', "external discoveries must participate in CORE_MATERIAL gate")
+require("resolver", "externalDiscoveredContract", "external discoveries must receive conservative Kyant contracts")
+
+# Every installed COUI visual enum value is expanded into its own direct strict row.
+for token in ["BLUR_PREFIX", "STROKE_PREFIX", "SPOTLIGHT_PREFIX", "TOOLBAR_PREFIX", "bridge.catalog()"]:
+    require("coui_presets", token, "per-preset COUI inventory must remain runtime-driven")
+require("inventory", "ColorOsCouiPresetInventory", "all COUI preset rows must merge into complete inventory")
+require("registry", "ColorOsCouiPresetInventory.BLUR_PREFIX", "exact COUI blur preset URI must have a route")
+require("registry", "ColorOsCouiPresetInventory.STROKE_PREFIX", "exact COUI stroke preset URI must have a route")
+require("registry", "ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX", "exact COUI spotlight preset URI must have a route")
+require("registry", "ColorOsCouiPresetInventory.TOOLBAR_PREFIX", "exact COUI toolbar category URI must have a route")
+require("route_host", "exactPreset(implementation", "unified host must execute exact preset URI without family substitution")
+require("resolver", "couiPresetContract", "every exact COUI preset row must get a family-accurate Kyant contract")
+
+# Runtime evidence must resolve all three vendor code owners and external shader resources.
+for token in ["SYSTEM_UI_PACKAGE", "UX_PACKAGE", "CLOCK_PACKAGE", 'implementation.startsWith("external://")']:
+    require("parameter_audit", token, "parameter/resource audit must cover all strict-inventory package owners")
+require("parameter_audit", "inspectExternalShader", "external AGSL/GLSL rows must inspect the real APK resource")
+
 require("material_bridge", "fun applyBlur", "COUI blur route must call the installed vendor bridge")
 require("material_bridge", "fun applyStroke", "COUI stroke route must call the installed vendor bridge")
 require("material_bridge", "fun applySpotLight", "COUI spotlight route must call the installed vendor bridge")
@@ -76,9 +102,6 @@ require("material_bridge", "fun applyGradientBlur", "COUI progressive blur route
 require("clock_surface", "bridge.locationColor()", "glass surface must use the vendor GlassRegion marker")
 require("clock_surface", "bridge.apply(this, bg, glass, mix, mask, light)", "glass surface must attach the real vendor RenderEffect")
 
-# Each visually executable route must have both a registry entry and an implementation in the
-# unified ColorOS A/B host. PostEffect modules are deliberately isolated rather than sharing one
-# all-effects sample.
 direct_routes = [
     "POST_EFFECT_COMPOSER",
     "POST_EFFECT_SHAPE",
@@ -161,6 +184,8 @@ print("ColorOS parity guard: PASS")
 print(f" - proven strict entries: {len(proven_entries)}")
 print(f" - framework primitives: {len(framework_primitives)}")
 print(f" - cross-package visual primitives: {len(cross_package_visual_primitives)}")
+print(" - external DEX/shader discovery: guarded")
+print(" - runtime COUI preset expansion: guarded")
 print(f" - direct routes: {len(direct_routes)}")
 print(f" - Kyant recipes: {len(recipe_names)}")
 print(f" - SystemUI GL assets: {len(gl_assets)}")
