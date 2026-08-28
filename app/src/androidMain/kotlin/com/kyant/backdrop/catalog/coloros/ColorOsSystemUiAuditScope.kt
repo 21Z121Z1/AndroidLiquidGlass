@@ -14,6 +14,8 @@ internal object ColorOsSystemUiAuditScope {
         "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer",
         "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView",
         "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams",
+        "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
+        "com.oplus.systemui.volume.OplusVolumeSeekBar",
     )
 
     data class ScopedSummary(
@@ -49,6 +51,8 @@ internal object ColorOsSystemUiAuditScope {
             impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider" -> "QS shipping blur/mix 配方入口"
             impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper" -> "SystemUI shader blend 参数更新器"
             impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView" -> "锁屏渐变模糊遮罩；材质核心但不是折射"
+            impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> "QS 真实业务 View；onDraw 进入 QsSeekBarBlurManager"
+            impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 VolumeBarMaterialHost/StrokeRenderer"
             ".notification.blur." in impl -> "通知材质 blur/mix 子系统"
             ".notification.material." in impl -> "通知材质子系统"
             ".notification.lockscreen.capsule." in impl &&
