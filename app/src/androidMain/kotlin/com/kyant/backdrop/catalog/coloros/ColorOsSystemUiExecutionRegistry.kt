@@ -127,7 +127,7 @@ internal object ColorOsSystemUiExecutionRegistry {
         ),
         MATERIAL_PARAMETER_AUDIT(
             Kind.PARAMETER_EXECUTOR,
-            "Runtime reflection of installed SystemUI params/config/adapter; values remain vendor-owned",
+            "Runtime reflection/resource inspection of installed vendor material implementation",
         ),
         SYSTEMUI_SHADER_RESOURCE_AUDIT(
             Kind.PARAMETER_EXECUTOR,
@@ -160,6 +160,16 @@ internal object ColorOsSystemUiExecutionRegistry {
                     Route.SYSTEMUI_GL_BLUR
                 else -> Route.SYSTEMUI_SHADER_RESOURCE_AUDIT
             }
+        }
+
+        // Every runtime enum preset emitted by ColorOsCouiPresetInventory is a first-class direct
+        // row. The route selects the family; ColorOsSystemUiRouteHostView parses the exact enum
+        // name from the URI and never substitutes another preset from the same family.
+        when {
+            impl.startsWith(ColorOsCouiPresetInventory.BLUR_PREFIX) -> return Route.COUI_MATERIAL_BLUR
+            impl.startsWith(ColorOsCouiPresetInventory.STROKE_PREFIX) -> return Route.COUI_MATERIAL_STROKE
+            impl.startsWith(ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX) -> return Route.COUI_SPOTLIGHT
+            impl.startsWith(ColorOsCouiPresetInventory.TOOLBAR_PREFIX) -> return Route.COUI_TOOLBAR_STACK
         }
 
         when (impl) {
