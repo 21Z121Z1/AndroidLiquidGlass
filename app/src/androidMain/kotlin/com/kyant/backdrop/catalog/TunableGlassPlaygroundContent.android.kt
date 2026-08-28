@@ -13,11 +13,14 @@ import android.graphics.Shader
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver
+import android.widget.SeekBar
+import android.widget.Switch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,11 +34,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,11 +109,11 @@ private fun ColorOsTunableGlassPlayground() {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("ColorOS Liquid Glass · 实时调试", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-            Text(
-                "从设备已安装的 personality-clocks APK 动态提取当前固件 AGSL；仓库不内置 OPPO shader。拖动参数会直接更新 RuntimeShader，模糊半径变化只重建多输入 RenderEffect。",
-                fontSize = 12.sp,
+            TuningText("ColorOS Liquid Glass · 实时调试", size = 22, weight = FontWeight.SemiBold)
+            TuningText(
+                "从设备已安装的 personality-clocks APK 动态提取当前固件 AGSL；仓库不内置 OPPO shader。拖动普通参数会直接更新 RuntimeShader，只有模糊半径变化会重建多输入 RenderEffect。",
                 color = Color.White.copy(alpha = 0.78f),
+                size = 12,
             )
 
             val density = LocalDensity.current
@@ -132,15 +133,24 @@ private fun ColorOsTunableGlassPlayground() {
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
-                Text("ColorOS", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                TuningText("ColorOS", size = 20, weight = FontWeight.SemiBold)
             }
 
-            Text(status, color = if (status.startsWith("PASS")) Color(0xFF8EE6A2) else Color(0xFFFFCC80), fontSize = 11.sp)
-            imageError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 11.sp) }
+            TuningText(
+                status,
+                color = if (status.startsWith("PASS")) Color(0xFF8EE6A2) else Color(0xFFFFCC80),
+                size = 11,
+            )
+            imageError?.let { TuningText(it, color = Color(0xFFFF8A80), size = 11) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { params = TunableGlassParams(); cornerRadius = 42f }) { Text("恢复系统默认") }
-                Button(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("选择背景") }
+                TuningButton("恢复系统默认") {
+                    params = TunableGlassParams()
+                    cornerRadius = 42f
+                }
+                TuningButton("选择背景") {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
             }
 
             Column(
@@ -163,14 +173,23 @@ private fun ColorOsTunableGlassPlayground() {
                 BoolControl("仅显示原始 View u_OnlyViewContext", params.onlyViewContext) { params = params.copy(onlyViewContext = it) }
 
                 ParameterSection("软距离场 / 模糊")
-                Text("这里控制 u_BlurClockTex。系统优化版默认是 10 × 10 px；改变它会实时重建同一个 ColorOS 多输入 RenderEffect。", color = Color.White.copy(alpha = 0.68f), fontSize = 11.sp)
+                TuningText(
+                    "控制 u_BlurClockTex。系统优化版默认 10 × 10 px；拖动时只重建模糊节点和 ColorOS 多输入 RenderEffect，不重编译着色器。",
+                    color = Color.White.copy(alpha = 0.68f),
+                    size = 11,
+                )
                 ParamSlider("SDF 模糊半径 X", params.blurRadiusX, 0f..40f, suffix = " px") { params = params.copy(blurRadiusX = it) }
                 ParamSlider("SDF 模糊半径 Y", params.blurRadiusY, 0f..40f, suffix = " px") { params = params.copy(blurRadiusY = it) }
 
                 ParameterSection("折射 / 色散")
+                TuningText(
+                    "折射范围不是像素半径，而是软距离场中围绕 0.5 等值线的边缘带宽；实际位移幅度还会乘屏幕尺寸、梯度和边缘权重。",
+                    color = Color.White.copy(alpha = 0.68f),
+                    size = 11,
+                )
                 ParamSlider("折射强度比例", params.refractionIntensityScale, 0f..1.25f) { params = params.copy(refractionIntensityScale = it) }
-                ParamSlider("折射范围 X（边缘半径）", params.refractionRangeX, 0.01f..1.5f) { params = params.copy(refractionRangeX = it) }
-                ParamSlider("折射范围 Y（边缘半径）", params.refractionRangeY, 0.01f..1.5f) { params = params.copy(refractionRangeY = it) }
+                ParamSlider("折射范围 X（边缘带）", params.refractionRangeX, 0.01f..1.5f) { params = params.copy(refractionRangeX = it) }
+                ParamSlider("折射范围 Y（边缘带）", params.refractionRangeY, 0.01f..1.5f) { params = params.copy(refractionRangeY = it) }
                 ParamSlider("RGB 色散强度比例", params.dispersionIntensityScale, 0f..0.60f) { params = params.copy(dispersionIntensityScale = it) }
                 ParamSlider("梯度钳位", params.maxGradient, 0.005f..0.10f, decimals = 3) { params = params.copy(maxGradient = it) }
 
@@ -209,7 +228,11 @@ private fun ColorOsTunableGlassPlayground() {
                 ParameterSection("材质混色配方（高级）")
                 BoolControl("展开所有系统配色常量", showColorRecipes) { showColorRecipes = it }
                 if (showColorRecipes) {
-                    Text("这些值在当前优化版 AGSL 中本来是 const；调试页只在内存中把它们改成 uniform。", color = Color.White.copy(alpha = 0.68f), fontSize = 11.sp)
+                    TuningText(
+                        "这些值在当前优化版 AGSL 中原本是 const；调试页只在内存中把它们改成 uniform。",
+                        color = Color.White.copy(alpha = 0.68f),
+                        size = 11,
+                    )
                     ColorEditor("ONE_PLUS_TOP", params.onePlusTop) { params = params.copy(onePlusTop = it) }
                     ColorEditor("ONE_PLUS_MIDDLE", params.onePlusMiddle) { params = params.copy(onePlusMiddle = it) }
                     ColorEditor("ONE_PLUS_BOT", params.onePlusBottom) { params = params.copy(onePlusBottom = it) }
@@ -234,9 +257,38 @@ private fun ColorOsTunableGlassPlayground() {
 }
 
 @Composable
+private fun TuningText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White,
+    size: Int = 12,
+    weight: FontWeight = FontWeight.Normal,
+) {
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = TextStyle(color = color, fontSize = size.sp, fontWeight = weight),
+    )
+}
+
+@Composable
+private fun TuningButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.13f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        TuningText(label, size = 13, weight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
 private fun ParameterSection(title: String) {
     Spacer(Modifier.height(6.dp))
-    Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    TuningText(title, size = 17, weight = FontWeight.SemiBold)
 }
 
 @Composable
@@ -248,6 +300,8 @@ private fun ParamSlider(
     suffix: String = "",
     onValueChange: (Float) -> Unit,
 ) {
+    val span = (range.endInclusive - range.start).takeIf { it > 0f } ?: 1f
+    val normalized = ((value - range.start) / span).coerceIn(0f, 1f)
     val factor = when (decimals) {
         0 -> 1f
         1 -> 10f
@@ -255,17 +309,48 @@ private fun ParamSlider(
         else -> 1000f
     }
     val rounded = (value * factor).roundToInt() / factor
+
     Column(Modifier.fillMaxWidth()) {
-        Text("$label  $rounded$suffix", color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp)
-        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValueChange, valueRange = range)
+        TuningText("$label  $rounded$suffix", color = Color.White.copy(alpha = 0.88f), size = 12)
+        AndroidView(
+            factory = { SeekBar(it).apply { max = 1000 } },
+            update = { seek ->
+                seek.setOnSeekBarChangeListener(null)
+                seek.progress = (normalized * seek.max).roundToInt().coerceIn(0, seek.max)
+                seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (!fromUser) return
+                        val t = progress / 1000f
+                        onValueChange(range.start + span * t)
+                    }
+
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                })
+            },
+            modifier = Modifier.fillMaxWidth().height(38.dp),
+        )
     }
 }
 
+@Suppress("DEPRECATION")
 @Composable
 private fun BoolControl(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        TuningText(label, modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.88f), size = 12)
+        AndroidView(
+            factory = { Switch(it) },
+            update = { toggle ->
+                toggle.setOnCheckedChangeListener(null)
+                toggle.isChecked = checked
+                toggle.setOnCheckedChangeListener { _, value -> onCheckedChange(value) }
+            },
+            modifier = Modifier.height(44.dp),
+        )
     }
 }
 
@@ -277,14 +362,25 @@ private fun ColorEditor(label: String, color: TunableColor4, onChange: (TunableC
             .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Box(
                 Modifier
                     .size(28.dp)
                     .clip(RoundedCornerShape(7.dp))
-                    .background(Color(color.r.coerceIn(0f, 1f), color.g.coerceIn(0f, 1f), color.b.coerceIn(0f, 1f), color.a.coerceIn(0f, 1f))),
+                    .background(
+                        Color(
+                            color.r.coerceIn(0f, 1f),
+                            color.g.coerceIn(0f, 1f),
+                            color.b.coerceIn(0f, 1f),
+                            color.a.coerceIn(0f, 1f),
+                        ),
+                    ),
             )
-            Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            TuningText(label, size = 12, weight = FontWeight.Medium)
         }
         ParamSlider("R", color.r, 0f..1f) { onChange(color.copy(r = it)) }
         ParamSlider("G", color.g, 0f..1f) { onChange(color.copy(g = it)) }
@@ -406,7 +502,10 @@ private fun createTuningWallpaper(context: Context): Bitmap {
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     paint.shader = LinearGradient(
-        0f, 0f, w.toFloat(), h.toFloat(),
+        0f,
+        0f,
+        w.toFloat(),
+        h.toFloat(),
         intArrayOf(0xFF17112E.toInt(), 0xFF6459C7.toInt(), 0xFFFF7347.toInt(), 0xFF16275A.toInt()),
         floatArrayOf(0f, 0.38f, 0.68f, 1f),
         Shader.TileMode.CLAMP,
