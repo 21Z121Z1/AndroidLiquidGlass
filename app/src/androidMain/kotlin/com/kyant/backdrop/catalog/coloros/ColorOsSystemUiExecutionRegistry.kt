@@ -4,9 +4,9 @@ package com.kyant.backdrop.catalog.coloros
  * Machine-readable execution route for each ColorOS SystemUI material row.
  *
  * A route is not a claim that third-party code can always execute the vendor implementation.
- * HOST_BOUND and SURFACE_CONTROL_BOUND explicitly preserve those limits. What this registry
- * prevents is a DIRECT_VIEW/GL_PIPELINE row existing without a concrete bridge/lab that actually
- * exercises the recovered implementation.
+ * HOST_BOUND and SURFACE_CONTROL_BOUND preserve those limits. PARAMETER_EXECUTOR means the class
+ * is a config/params/adapter layer that is inspected or fed into a real vendor renderer rather
+ * than falsely presented as a standalone pixel shader.
  */
 internal object ColorOsSystemUiExecutionRegistry {
     enum class Kind {
@@ -93,6 +93,10 @@ internal object ColorOsSystemUiExecutionRegistry {
             Kind.PARAMETER_EXECUTOR,
             "ColorOsSystemUiBlurMixBridge + ShaderBlendParamHelper -> BlendDrawable",
         ),
+        MATERIAL_PARAMETER_AUDIT(
+            Kind.PARAMETER_EXECUTOR,
+            "Runtime reflection of installed SystemUI params/config/adapter; values stay vendor-owned and are not replaced with hand-tuned constants",
+        ),
         SYSTEMUI_SHADER_RESOURCE_AUDIT(
             Kind.PARAMETER_EXECUTOR,
             "ColorOsSystemUiLiquidGlassCatalog shader scan; unknown uniforms remain non-executable",
@@ -124,35 +128,33 @@ internal object ColorOsSystemUiExecutionRegistry {
             }
         }
 
-        if (impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView") {
-            return Route.KEYGUARD_GRADIENT_BLUR_VIEW
-        }
+        if (impl == "com.oplus.systemui.keyguard.gradientmask.view.GradientBlurImageView") return Route.KEYGUARD_GRADIENT_BLUR_VIEW
         if (impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar") return Route.QS_BUSINESS_SEEKBAR
         if (impl == "com.oplus.systemui.volume.OplusVolumeSeekBar") return Route.VOLUME_BUSINESS_SEEKBAR
         if (impl == "com.oplus.systemui.qs.media.ProgressiveBlurOverlay") return Route.QS_PROGRESSIVE_BLUR_VIEW
-        if (impl == "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer") {
-            return Route.NOTIFICATION_TILT_SHIFT_VIEW
-        }
+        if (impl == "com.oplus.systemui.notification.blur.OplusNotificationTiltShiftBlurContainer") return Route.NOTIFICATION_TILT_SHIFT_VIEW
         if (impl == "com.oplus.systemui.qs.media.multilight.MultiLightShaderParams") return Route.QS_MULTI_LIGHT_SHADER
+        if (impl.startsWith("com.oplusos.systemui.common.adapter.MixColor")) return Route.SHIPPING_PRESET_BROWSER
+        if (impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider") return Route.BLUR_MIX_RECIPE_EXECUTOR
+        if (impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper") return Route.BLUR_MIX_RECIPE_EXECUTOR
 
         if (impl.startsWith("com.oplus.posteffect.")) {
             return when {
                 "continuousblurdrawable" in lower || "metaballblurdrawable" in lower -> Route.SURFACE_CONTROL_HOST
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST -> Route.SYSTEMUI_HOST
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
                 "metaball" in lower -> Route.POST_EFFECT_METABALL
                 else -> Route.POST_EFFECT_COMPOSER
             }
         }
 
-        if (impl.startsWith("com.oplusos.systemui.common.adapter.MixColor")) return Route.SHIPPING_PRESET_BROWSER
-        if (impl == "com.oplusos.systemui.common.util.QSBlurConfigProvider") return Route.BLUR_MIX_RECIPE_EXECUTOR
-        if (impl == "com.oplusos.systemui.common.util.ShaderBlendParamHelper") return Route.BLUR_MIX_RECIPE_EXECUTOR
-
         if (impl.startsWith("com.oplusos.systemui.common.blurability.")) {
             return when (effectiveExecution) {
                 ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
                 ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> {
-                    if ("mix" in lower || "config" in lower) Route.BLUR_MIX_RECIPE_EXECUTOR
-                    else Route.SHIPPING_PRESET_BROWSER
+                    if ("mix" in lower || "blurconfig" in lower) Route.BLUR_MIX_RECIPE_EXECUTOR
+                    else Route.MATERIAL_PARAMETER_AUDIT
                 }
                 else -> Route.SYSTEMUI_HOST
             }
@@ -164,6 +166,7 @@ internal object ColorOsSystemUiExecutionRegistry {
                 "gradientstrokelineadapter" in lower || "innershadowadapter" in lower -> Route.SHIPPING_PRESET_BROWSER
                 "blurmixcolorparams" in lower || "platformblurparamsmanager" in lower -> Route.BLUR_MIX_RECIPE_EXECUTOR
                 "metaball" in lower && effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW -> Route.NOTIFICATION_TILT_SHIFT_VIEW
                 else -> Route.SYSTEMUI_HOST
             }
@@ -175,6 +178,7 @@ internal object ColorOsSystemUiExecutionRegistry {
                 "progressivebluroverlay" in lower -> Route.QS_PROGRESSIVE_BLUR_VIEW
                 "multilightshaderparams" in lower -> Route.QS_MULTI_LIGHT_SHADER
                 "mixcolortile" in lower -> Route.SHIPPING_PRESET_BROWSER
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW -> Route.QS_BUSINESS_SEEKBAR
                 else -> Route.SYSTEMUI_HOST
             }
@@ -183,18 +187,35 @@ internal object ColorOsSystemUiExecutionRegistry {
         if (".volume." in impl) {
             return when {
                 "volumegradientstrokeshader" in lower -> Route.VOLUME_STROKE_SHADER
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.DIRECT_VIEW -> Route.VOLUME_BUSINESS_SEEKBAR
                 else -> Route.SYSTEMUI_HOST
             }
         }
 
         if (".wallpaperblur." in impl) {
-            return if ("wallpaperblurdrawable" in lower) Route.WALLPAPER_BLUR_DRAWABLE else Route.SYSTEMUI_HOST
+            return when {
+                "wallpaperblurdrawable" in lower -> Route.WALLPAPER_BLUR_DRAWABLE
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
+                else -> Route.SYSTEMUI_HOST
+            }
         }
-        if (".biometrics.material." in impl) return Route.SYSTEMUI_HOST
-        if (".panelanimation.platformblur." in impl) return Route.SYSTEMUI_HOST
-        if (impl.startsWith("com.oplusos.systemui.common.shader.") && "metaball" in lower) return Route.SYSTEMUI_HOST
+        if (".biometrics.material." in impl) {
+            return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) Route.MATERIAL_PARAMETER_AUDIT
+            else Route.SYSTEMUI_HOST
+        }
+        if (".panelanimation.platformblur." in impl) {
+            return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) Route.MATERIAL_PARAMETER_AUDIT
+            else Route.SYSTEMUI_HOST
+        }
+        if (impl.startsWith("com.oplusos.systemui.common.shader.") && "metaball" in lower) {
+            return if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) Route.MATERIAL_PARAMETER_AUDIT
+            else Route.SYSTEMUI_HOST
+        }
 
+        if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) {
+            return Route.MATERIAL_PARAMETER_AUDIT
+        }
         return when (effectiveExecution) {
             ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST -> Route.SYSTEMUI_HOST
             ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
