@@ -10,5 +10,6 @@ fun AndroidRootContent() {
         MainContent()
         SystemUiExhaustiveLabOverlay()
         SystemUiDeepDiveOverlay()
+        SystemUiBlurMixOverlay()
     }
 }
