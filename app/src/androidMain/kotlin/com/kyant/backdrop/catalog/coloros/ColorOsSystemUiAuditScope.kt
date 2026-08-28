@@ -95,6 +95,8 @@ internal object ColorOsSystemUiAuditScope {
             impl in FRAMEWORK_PRIMITIVES -> FRAMEWORK_PRIMITIVES.getValue(impl)
             impl in COUI_PRIMITIVES -> "SystemUI 消费的外部 COUI shipping 材质原语"
             impl == GLASS_BUILDER -> "SystemUI 锁屏插件真实折射/色散 GlassEffectBuilder"
+            mapping.group.startsWith("自动发现 · 外部") ->
+                "从 SystemUI 实际消费的外部材质包运行时发现；必须进入同一 Kyant/ColorOS 严格闸门"
             impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
             impl.startsWith("com.oplusos.systemui.common.blurability.") -> "ColorOS SystemUI blurability 核心"
             impl.startsWith("com.oplusos.systemui.common.adapter.MixColor") -> "SystemUI shipping 材质预设适配器"
@@ -103,7 +105,7 @@ internal object ColorOsSystemUiAuditScope {
             impl.startsWith("com.oplusos.systemui.common.util.") && listOf("blur", "stroke", "material").any(lower::contains) ->
                 "SystemUI 公共材质参数/模糊工具"
             impl == "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar" -> "QS 真实业务 View；onDraw 进入 QsSeekBarBlurManager"
-            impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 VolumeBarMaterialHost/StrokeRenderer"
+            impl == "com.oplus.systemui.volume.OplusVolumeSeekBar" -> "音量真实业务 View；构造链进入 OplusVolumeBarMaterialHost/StrokeRenderer"
             impl.startsWith("com.oplus.systemui.notification.") &&
                 listOf("material", "blur", "stroke", "spotlight", "metaball", "optic").any(lower::contains) -> "通知完整材质子系统"
             impl.startsWith("com.oplus.systemui.keyguard.") &&
