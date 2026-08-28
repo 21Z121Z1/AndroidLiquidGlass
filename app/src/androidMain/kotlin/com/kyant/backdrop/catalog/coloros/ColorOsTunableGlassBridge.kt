@@ -384,7 +384,16 @@ internal class ColorOsTunableGlassBridge(context: Context) {
         return RenderEffect.createBlurEffect(
             max(x, 0.001f),
             max(y, 0.001f),
-            Shader.TileMode.CLAMP,
+            // The keyguard implementation normally blurs masks that are inset
+            // inside a larger transparent layer. Our generic material preview
+            // draws a rounded rectangle flush to the View bounds. CLAMP would
+            // repeat opaque edge pixels outside that layer, flattening the
+            // alpha gradient on all straight edges and leaving visible
+            // refraction only at corners. Kyant's analytic rounded-rect SDF has
+            // explicit normals for every edge; DECAL gives ColorOS's blurred
+            // soft field the equivalent transparent exterior boundary while
+            // keeping the vendor refraction/dispersion/lighting algorithm.
+            Shader.TileMode.DECAL,
         )
     }
 
