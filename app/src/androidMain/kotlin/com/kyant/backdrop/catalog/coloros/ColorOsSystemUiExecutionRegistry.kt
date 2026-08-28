@@ -71,6 +71,10 @@ internal object ColorOsSystemUiExecutionRegistry {
         val impl = mapping.systemUiImplementation
         val lower = impl.lowercase()
 
+        // DIRECT_INTEGRATED helpers keep their own implementation identity, but execute through a
+        // proven shipping consumer such as OplusQsVerticalSeekBar or OplusVolumeSeekBar.
+        ColorOsSystemUiIntegratedExecution.routeFor(impl)?.let { return it }
+
         if (impl.startsWith("assets/") || impl.startsWith("res/raw/")) {
             return when {
                 "chromatic" in lower -> Route.CHROMATIC_SHADER
