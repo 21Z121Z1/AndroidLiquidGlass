@@ -95,6 +95,10 @@ internal object ColorOsSystemUiAuditScope {
             impl in FRAMEWORK_PRIMITIVES -> FRAMEWORK_PRIMITIVES.getValue(impl)
             impl in COUI_PRIMITIVES -> "SystemUI 消费的外部 COUI shipping 材质原语"
             impl == GLASS_BUILDER -> "SystemUI 锁屏插件真实折射/色散 GlassEffectBuilder"
+            impl.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX) ->
+                "SystemUI shipping PostEffect 参数 recipe；每个 getter 独立进入严格对照"
+            impl.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX) ->
+                "SystemUI shipping BlurMix recipe；direct shader 与 host-only 状态分别审计"
             mapping.group.startsWith("自动发现 · 外部") ->
                 "从 SystemUI 实际消费的外部材质包运行时发现；必须进入同一 Kyant/ColorOS 严格闸门"
             impl.startsWith("com.oplus.posteffect.") -> "ColorOS PostEffect 图形/参数/宿主体系"
