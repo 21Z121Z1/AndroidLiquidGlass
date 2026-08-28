@@ -29,7 +29,7 @@ internal class ColorOsCouiPresetInventory(context: Context) {
                 catalog.blur.filter(::isVisualPreset).forEach { name ->
                     add(
                         mapping(
-                            group = "COUI shipping preset · Blur",
+                            group = "自动发现 · 外部 COUI shipping preset · Blur",
                             implementation = "$BLUR_PREFIX$name",
                             kyant = "blur() + vibrancy/colorControls + surface tint",
                             note = "当前 uxdesign BlurEffectType.$name；统一 A/B 直接调用 COUIMaterialBlurEffect.apply(view, $name)。",
@@ -39,7 +39,7 @@ internal class ColorOsCouiPresetInventory(context: Context) {
                 catalog.stroke.filter(::isVisualPreset).forEach { name ->
                     add(
                         mapping(
-                            group = "COUI shipping preset · Stroke",
+                            group = "自动发现 · 外部 COUI shipping preset · Stroke",
                             implementation = "$STROKE_PREFIX$name",
                             kyant = "Shape/SDF + Highlight + Shadow",
                             note = "当前 uxdesign StrokeEffectType.$name；统一 A/B 直接调用 COUIMaterialStrokeEffect.apply(view, $name)。",
@@ -49,7 +49,7 @@ internal class ColorOsCouiPresetInventory(context: Context) {
                 catalog.spotLight.filter(::isVisualPreset).forEach { name ->
                     add(
                         mapping(
-                            group = "COUI shipping preset · Spotlight",
+                            group = "自动发现 · 外部 COUI shipping preset · Spotlight",
                             implementation = "$SPOTLIGHT_PREFIX$name",
                             kyant = "InteractiveHighlight nearest mechanism",
                             note = "当前 uxdesign SpotLightType.$name；统一 A/B 直接挂载该 shipping spotlight drawable，并保留 MotionEvent/hotspot 驱动。",
@@ -59,7 +59,7 @@ internal class ColorOsCouiPresetInventory(context: Context) {
                 catalog.toolbarCategories.filter(::isVisualPreset).forEach { name ->
                     add(
                         mapping(
-                            group = "COUI shipping preset · Toolbar category",
+                            group = "自动发现 · 外部 COUI shipping preset · Toolbar category",
                             implementation = "$TOOLBAR_PREFIX$name",
                             kyant = "blur + Highlight/stroke + InteractiveHighlight + Shadow/caustic",
                             note = "当前 uxdesign ViewCategory.$name；A/B 测试在该真实 category 上强制启用 blur/stroke/spotlight/caustic，以隔离并验证完整材质栈；不宣称这四个开关都是业务默认值。",
