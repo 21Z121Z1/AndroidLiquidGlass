@@ -60,11 +60,13 @@ internal class ColorOsSystemUiCompleteInventory(context: Context) {
             .mapTo(hashSetOf()) { it.systemUiImplementation }
         val external = externalCatalog.mappings().filter { it.systemUiImplementation !in known }
 
-        return (runtime + required + couiPresets + shippingRecipes + interactiveRecipes + external).sortedWith(
-            compareBy<ColorOsSystemUiLiquidGlassCatalog.Mapping> { strictGroupRank(it.group) }
-                .thenBy { it.group }
-                .thenBy { it.systemUiImplementation },
-        )
+        return (runtime + required + couiPresets + shippingRecipes + interactiveRecipes + external)
+            .map(ColorOsSystemUiIntegratedExecution::promote)
+            .sortedWith(
+                compareBy<ColorOsSystemUiLiquidGlassCatalog.Mapping> { strictGroupRank(it.group) }
+                    .thenBy { it.group }
+                    .thenBy { it.systemUiImplementation },
+            )
     }
 
     private fun requiredMappings(): List<ColorOsSystemUiLiquidGlassCatalog.Mapping> = listOf(
