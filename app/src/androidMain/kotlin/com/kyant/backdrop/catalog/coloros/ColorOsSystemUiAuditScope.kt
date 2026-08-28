@@ -2,12 +2,12 @@ package com.kyant.backdrop.catalog.coloros
 
 /**
  * Separates the high-recall SystemUI graphics scan into the ColorOS material/Liquid-Glass core
- * and merely adjacent graphics infrastructure. The exhaustive catalog deliberately over-scans;
- * this classifier prevents generic ripple/shadow/animation classes from inflating or failing the
- * material coverage gate.
+ * and merely adjacent graphics infrastructure.
  *
- * CORE_MATERIAL coverage is intentionally stricter than a textual mapping: every core row must
- * also resolve to a ColorOsKyantParityContract made from concrete Kyant primitives.
+ * A CORE_MATERIAL row is complete only when three independent conditions hold:
+ * 1. semantic SystemUI -> Kyant mapping exists;
+ * 2. a strongly typed Kyant parity contract resolves to concrete Kyant APIs;
+ * 3. ColorOS has an explicit execution route compatible with the row's effective execution mode.
  */
 internal object ColorOsSystemUiAuditScope {
     enum class Scope { CORE_MATERIAL, ADJACENT_GRAPHICS }
@@ -29,6 +29,9 @@ internal object ColorOsSystemUiAuditScope {
         val coreUnmapped: Int,
         val coreContracted: Int,
         val coreContractMissing: Int,
+        val coreRouted: Int,
+        val coreRouteMissing: Int,
+        val coreRouteIncompatible: Int,
         val coreAvailable: Int,
         val coreDirect: Int,
         val coreHostBound: Int,
@@ -38,10 +41,19 @@ internal object ColorOsSystemUiAuditScope {
         val parityHostLifecycle: Int,
         val adjacentMapped: Int,
         val missingContracts: List<String>,
+        val missingRoutes: List<String>,
+        val incompatibleRoutes: List<String>,
     ) {
-        val coreComplete: Boolean get() = coreUnmapped == 0 && coreContractMissing == 0
+        val coreComplete: Boolean
+            get() = coreUnmapped == 0 &&
+                coreContractMissing == 0 &&
+                coreRouteMissing == 0 &&
+                coreRouteIncompatible == 0
+
         val coreCoveragePercent: Float
-            get() = if (core == 0) 100f else minOf(coreMapped, coreContracted) * 100f / core
+            get() = if (core == 0) 100f else {
+                minOf(coreMapped, coreContracted, coreRouted) * 100f / core
+            }
     }
 
     data class Classified(
@@ -49,6 +61,7 @@ internal object ColorOsSystemUiAuditScope {
         val scope: Scope,
         val reason: String,
         val parityContract: ColorOsKyantParityContract.Contract?,
+        val executionRoute: ColorOsSystemUiExecutionRegistry.Route?,
     )
 
     fun classify(mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping): Classified {
@@ -83,15 +96,8 @@ internal object ColorOsSystemUiAuditScope {
             else -> null
         }
 
-        return if (coreReason != null) {
-            Classified(
-                mapping = mapping,
-                scope = Scope.CORE_MATERIAL,
-                reason = coreReason,
-                parityContract = ColorOsKyantParityContract.resolve(mapping),
-            )
-        } else {
-            Classified(
+        if (coreReason == null) {
+            return Classified(
                 mapping = mapping,
                 scope = Scope.ADJACENT_GRAPHICS,
                 reason = when {
@@ -103,8 +109,18 @@ internal object ColorOsSystemUiAuditScope {
                     else -> "高召回扫描命中，但缺少 ColorOS 材质调用链证据"
                 },
                 parityContract = null,
+                executionRoute = null,
             )
         }
+
+        val effective = effectiveExecution(mapping)
+        return Classified(
+            mapping = mapping,
+            scope = Scope.CORE_MATERIAL,
+            reason = coreReason,
+            parityContract = ColorOsKyantParityContract.resolve(mapping),
+            executionRoute = ColorOsSystemUiExecutionRegistry.resolve(mapping, effective),
+        )
     }
 
     fun effectiveExecution(
@@ -127,7 +143,14 @@ internal object ColorOsSystemUiAuditScope {
         val coreMapped = core.count { isTextMapped(it.mapping) }
         val contracted = core.filter { it.parityContract != null }
         val missingContracts = core.filter { it.parityContract == null }
+        val routed = core.filter { it.executionRoute != null }
+        val missingRoutes = core.filter { it.executionRoute == null }
+        val incompatibleRoutes = core.filter { item ->
+            val route = item.executionRoute ?: return@filter false
+            !ColorOsSystemUiExecutionRegistry.routeIsCompatible(route, effectiveExecution(item.mapping))
+        }
         val adjacentMapped = adjacent.count { isTextMapped(it.mapping) }
+
         return ScopedSummary(
             total = classified.size,
             core = core.size,
@@ -136,6 +159,9 @@ internal object ColorOsSystemUiAuditScope {
             coreUnmapped = core.size - coreMapped,
             coreContracted = contracted.size,
             coreContractMissing = missingContracts.size,
+            coreRouted = routed.size,
+            coreRouteMissing = missingRoutes.size,
+            coreRouteIncompatible = incompatibleRoutes.size,
             coreAvailable = core.count { it.mapping.status.startsWith("available") },
             coreDirect = core.count {
                 val mode = effectiveExecution(it.mapping)
@@ -153,6 +179,10 @@ internal object ColorOsSystemUiAuditScope {
             parityHostLifecycle = contracted.count { it.parityContract?.kind == ColorOsKyantParityContract.Kind.HOST_LIFECYCLE },
             adjacentMapped = adjacentMapped,
             missingContracts = missingContracts.map { it.mapping.systemUiImplementation },
+            missingRoutes = missingRoutes.map { it.mapping.systemUiImplementation },
+            incompatibleRoutes = incompatibleRoutes.map { item ->
+                "${item.mapping.systemUiImplementation}: ${effectiveExecution(item.mapping)} -> ${item.executionRoute}"
+            },
         )
     }
 
