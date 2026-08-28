@@ -1,13 +1,6 @@
 package com.kyant.backdrop.catalog.coloros
 
-/**
- * Machine-readable execution route for each ColorOS SystemUI material row.
- *
- * A route is not a claim that third-party code can always execute the vendor implementation.
- * HOST_BOUND and SURFACE_CONTROL_BOUND preserve those limits. PARAMETER_EXECUTOR means the class
- * is a config/params/adapter layer that is inspected or fed into a real vendor renderer rather
- * than falsely presented as a standalone pixel shader.
- */
+/** Machine-readable execution route for each ColorOS SystemUI material row. */
 internal object ColorOsSystemUiExecutionRegistry {
     enum class Kind {
         DIRECT_EXECUTABLE,
@@ -17,13 +10,26 @@ internal object ColorOsSystemUiExecutionRegistry {
         SURFACE_CONTROL_BOUND,
     }
 
-    enum class Route(
-        val kind: Kind,
-        val implementation: String,
-    ) {
+    enum class Route(val kind: Kind, val implementation: String) {
         POST_EFFECT_COMPOSER(
             Kind.DIRECT_EXECUTABLE,
-            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable()",
+            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable(all modules)",
+        ),
+        POST_EFFECT_SHAPE(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable(corner only)",
+        ),
+        POST_EFFECT_OPTICS(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable(optics only)",
+        ),
+        POST_EFFECT_STROKE(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable(stroke only)",
+        ),
+        POST_EFFECT_INNER_SHADOW(
+            Kind.DIRECT_EXECUTABLE,
+            "ColorOsSystemUiPostEffectBridge.createPostEffectDrawable(inner shadow only)",
         ),
         POST_EFFECT_METABALL(
             Kind.DIRECT_EXECUTABLE,
@@ -95,7 +101,7 @@ internal object ColorOsSystemUiExecutionRegistry {
         ),
         MATERIAL_PARAMETER_AUDIT(
             Kind.PARAMETER_EXECUTOR,
-            "Runtime reflection of installed SystemUI params/config/adapter; values stay vendor-owned and are not replaced with hand-tuned constants",
+            "Runtime reflection of installed SystemUI params/config/adapter; values remain vendor-owned",
         ),
         SYSTEMUI_SHADER_RESOURCE_AUDIT(
             Kind.PARAMETER_EXECUTOR,
@@ -123,7 +129,9 @@ internal object ColorOsSystemUiExecutionRegistry {
                 "chromatic" in lower -> Route.CHROMATIC_SHADER
                 "barglow" in lower -> Route.BAR_GLOW_SHADER
                 "metaball" in lower -> Route.RAW_METABALL_SHADER
-                "blur_down" in lower || "blur_up" in lower || "gaussian" in lower || "display_" in lower -> Route.SYSTEMUI_GL_BLUR
+                effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.GL_PIPELINE &&
+                    ("blur_down" in lower || "blur_up" in lower || "gaussian" in lower || "display_" in lower) ->
+                    Route.SYSTEMUI_GL_BLUR
                 else -> Route.SYSTEMUI_SHADER_RESOURCE_AUDIT
             }
         }
@@ -144,7 +152,11 @@ internal object ColorOsSystemUiExecutionRegistry {
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY -> Route.MATERIAL_PARAMETER_AUDIT
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST -> Route.SYSTEMUI_HOST
                 effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
-                "metaball" in lower -> Route.POST_EFFECT_METABALL
+                lower.endsWith("cornerparams") -> Route.POST_EFFECT_SHAPE
+                lower.endsWith("opticsparams") -> Route.POST_EFFECT_OPTICS
+                lower.endsWith("gradientstrokelineparams") -> Route.POST_EFFECT_STROKE
+                lower.endsWith("innershadowparams") -> Route.POST_EFFECT_INNER_SHADOW
+                "metaballparams" in lower -> Route.POST_EFFECT_METABALL
                 else -> Route.POST_EFFECT_COMPOSER
             }
         }
@@ -213,9 +225,7 @@ internal object ColorOsSystemUiExecutionRegistry {
             else Route.SYSTEMUI_HOST
         }
 
-        if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) {
-            return Route.MATERIAL_PARAMETER_AUDIT
-        }
+        if (effectiveExecution == ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.CAPABILITY_ONLY) return Route.MATERIAL_PARAMETER_AUDIT
         return when (effectiveExecution) {
             ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SYSTEM_UI_HOST -> Route.SYSTEMUI_HOST
             ColorOsSystemUiLiquidGlassCatalog.ExecutionMode.SURFACE_CONTROL -> Route.SURFACE_CONTROL_HOST
