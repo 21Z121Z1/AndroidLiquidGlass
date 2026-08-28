@@ -123,10 +123,22 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
 
     private fun runShippingPreset(implementation: String, bitmap: Bitmap) {
         presetBridge.mapCatching { bridge ->
-            val matching = bridge.presets().filter { it.adapterClass == implementation }
-            require(matching.isNotEmpty()) { "no executable shipping preset binder for $implementation" }
-            val index = (matching.lastIndex * progress).toInt().coerceIn(0, matching.lastIndex)
-            val preset = matching[index]
+            val all = bridge.presets()
+            val exactId = implementation
+                .takeIf { it.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX) }
+                ?.removePrefix(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)
+            val matching = if (exactId != null) {
+                all.filter { it.id == exactId }
+            } else {
+                all.filter { it.adapterClass == implementation }
+            }
+            require(matching.isNotEmpty()) {
+                if (exactId != null) "shipping preset id $exactId not found" else "no executable shipping preset binder for $implementation"
+            }
+            val preset = if (exactId != null) matching.single() else {
+                val index = (matching.lastIndex * progress).toInt().coerceIn(0, matching.lastIndex)
+                matching[index]
+            }
             val drawable = bridge.createPresetDrawable(
                 bitmap = bitmap,
                 width = width,
@@ -137,7 +149,8 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             preset to DrawableSurfaceView(context, drawable)
         }.onSuccess { (preset, child) ->
             addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-            postStatus("PASS — shipping preset ${preset.family}/${preset.methodName} from ${preset.adapterClass}")
+            val exact = if (implementation.startsWith(ColorOsSystemUiShippingRecipeInventory.MATERIAL_PREFIX)) " [exact recipe row]" else " [adapter browser]"
+            postStatus("PASS — shipping preset ${preset.family}/${preset.methodName}$exact from ${preset.adapterClass}")
         }.onFailure {
             runParameterAudit(
                 implementation,
@@ -149,17 +162,29 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
 
     private fun runBlurMixRecipe(implementation: String, bitmap: Bitmap) {
         blurMixBridge.mapCatching { bridge ->
-            val wantedSource = if (implementation.contains("notification", ignoreCase = true)) {
-                ColorOsSystemUiBlurMixBridge.Source.NOTIFICATION
+            val all = bridge.recipes()
+            val exactId = implementation
+                .takeIf { it.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX) }
+                ?.removePrefix(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX)
+            val recipe = if (exactId != null) {
+                all.firstOrNull { it.id == exactId }
+                    ?: error("shipping BlurMix recipe id $exactId not found")
             } else {
-                ColorOsSystemUiBlurMixBridge.Source.QS
+                val wantedSource = if (implementation.contains("notification", ignoreCase = true)) {
+                    ColorOsSystemUiBlurMixBridge.Source.NOTIFICATION
+                } else {
+                    ColorOsSystemUiBlurMixBridge.Source.QS
+                }
+                val directRecipes = all.filter {
+                    it.source == wantedSource && it.executionHint == ColorOsSystemUiBlurMixBridge.Execution.DIRECT_SHADER
+                }
+                require(directRecipes.isNotEmpty()) { "no DIRECT_SHADER shipping blur/mix recipe for $wantedSource" }
+                val index = (directRecipes.lastIndex * progress).toInt().coerceIn(0, directRecipes.lastIndex)
+                directRecipes[index]
             }
-            val directRecipes = bridge.recipes().filter {
-                it.source == wantedSource && it.executionHint == ColorOsSystemUiBlurMixBridge.Execution.DIRECT_SHADER
+            require(recipe.executionHint == ColorOsSystemUiBlurMixBridge.Execution.DIRECT_SHADER) {
+                "${recipe.id} is HOST_ONLY and must not execute through the direct shader bridge"
             }
-            require(directRecipes.isNotEmpty()) { "no DIRECT_SHADER shipping blur/mix recipe for $wantedSource" }
-            val index = (directRecipes.lastIndex * progress).toInt().coerceIn(0, directRecipes.lastIndex)
-            val recipe = directRecipes[index]
             val drawable = bridge.createDrawable(
                 bitmap = bitmap,
                 width = width,
@@ -171,7 +196,8 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             recipe to DrawableSurfaceView(context, drawable)
         }.onSuccess { (recipe, child) ->
             addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-            postStatus("PASS — shipping blur/mix ${recipe.label} · ${recipe.source}")
+            val exact = if (implementation.startsWith(ColorOsSystemUiShippingRecipeInventory.BLUR_MIX_PREFIX)) " [exact recipe row]" else " [provider browser]"
+            postStatus("PASS — shipping blur/mix ${recipe.label} · ${recipe.source}$exact")
         }.onFailure {
             runParameterAudit(
                 implementation,
@@ -245,10 +271,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                 createPostEffectSurface(bridge, route, bitmap)
             }
             ColorOsSystemUiExecutionRegistry.Route.POST_EFFECT_METABALL -> executable.mapCatching { bridge ->
-                DrawableSurfaceView(
-                    context,
-                    bridge.createMetaBallPostEffectDrawable(bitmap, width, height, radiusPx, progress).getOrThrow(),
-                )
+                DrawableSurfaceView(context, bridge.createMetaBallPostEffectDrawable(bitmap, width, height, radiusPx, progress).getOrThrow())
             }
             ColorOsSystemUiExecutionRegistry.Route.CHROMATIC_SHADER -> postEffect.mapCatching { bridge ->
                 BitmapSurfaceView(context, bitmap).also { child ->
@@ -260,9 +283,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             }
             ColorOsSystemUiExecutionRegistry.Route.BAR_GLOW_SHADER -> executable.mapCatching { bridge ->
                 BitmapSurfaceView(context, bitmap).also { child ->
-                    child.post {
-                        bridge.applyBarGlow(child).onFailure { postStatus("UNAVAILABLE — barglow: ${describe(it)}") }
-                    }
+                    child.post { bridge.applyBarGlow(child).onFailure { postStatus("UNAVAILABLE — barglow: ${describe(it)}") } }
                 }
             }
             ColorOsSystemUiExecutionRegistry.Route.RAW_METABALL_SHADER -> executable.mapCatching { bridge ->
@@ -280,24 +301,14 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             ColorOsSystemUiExecutionRegistry.Route.WALLPAPER_BLUR_DRAWABLE -> executable.mapCatching { bridge ->
                 DrawableSurfaceView(context, bridge.createWallpaperBlurDrawable(bitmap, 0x18FFFFFF).getOrThrow())
             }
-            ColorOsSystemUiExecutionRegistry.Route.QS_PROGRESSIVE_BLUR_VIEW -> direct.mapCatching {
-                it.createQsProgressiveBlur(progress).getOrThrow()
-            }
-            ColorOsSystemUiExecutionRegistry.Route.NOTIFICATION_TILT_SHIFT_VIEW -> direct.mapCatching {
-                it.createNotificationTiltShift(width, height).getOrThrow()
-            }
-            ColorOsSystemUiExecutionRegistry.Route.KEYGUARD_GRADIENT_BLUR_VIEW -> direct.mapCatching {
-                it.createKeyguardGradientBlur(bitmap, progress).getOrThrow()
-            }
+            ColorOsSystemUiExecutionRegistry.Route.QS_PROGRESSIVE_BLUR_VIEW -> direct.mapCatching { it.createQsProgressiveBlur(progress).getOrThrow() }
+            ColorOsSystemUiExecutionRegistry.Route.NOTIFICATION_TILT_SHIFT_VIEW -> direct.mapCatching { it.createNotificationTiltShift(width, height).getOrThrow() }
+            ColorOsSystemUiExecutionRegistry.Route.KEYGUARD_GRADIENT_BLUR_VIEW -> direct.mapCatching { it.createKeyguardGradientBlur(bitmap, progress).getOrThrow() }
             ColorOsSystemUiExecutionRegistry.Route.QS_MULTI_LIGHT_SHADER -> direct.mapCatching {
                 ShaderSurfaceView(context, it.createQsMultiLightShader(width, height, radiusPx).getOrThrow())
             }
-            ColorOsSystemUiExecutionRegistry.Route.QS_BUSINESS_SEEKBAR -> direct.mapCatching {
-                it.createQsVerticalSeekBar((progress * 100).toInt()).getOrThrow()
-            }
-            ColorOsSystemUiExecutionRegistry.Route.VOLUME_BUSINESS_SEEKBAR -> direct.mapCatching {
-                it.createVolumeSeekBar((progress * 100).toInt()).getOrThrow()
-            }
+            ColorOsSystemUiExecutionRegistry.Route.QS_BUSINESS_SEEKBAR -> direct.mapCatching { it.createQsVerticalSeekBar((progress * 100).toInt()).getOrThrow() }
+            ColorOsSystemUiExecutionRegistry.Route.VOLUME_BUSINESS_SEEKBAR -> direct.mapCatching { it.createVolumeSeekBar((progress * 100).toInt()).getOrThrow() }
             else -> Result.failure(IllegalStateException("${route.name} is not a generic direct visual route"))
         }
 
@@ -308,10 +319,7 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
         }.onFailure { showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}") }
     }
 
-    private fun runCoui(
-        route: ColorOsSystemUiExecutionRegistry.Route,
-        implementation: String,
-    ) {
+    private fun runCoui(route: ColorOsSystemUiExecutionRegistry.Route, implementation: String) {
         val child = CouiSurfaceView(context, radiusPx)
         addView(child, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         postStatus("RUNNING — ${route.name} from installed com.oplus.uxdesign")
@@ -321,29 +329,25 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                 val catalog = bridge.catalog()
                 when (route) {
                     ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_BLUR -> {
-                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.BLUR_PREFIX)
-                            ?: choosePreset(catalog.blur)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.BLUR_PREFIX) ?: choosePreset(catalog.blur)
                         require(preset in catalog.blur) { "BlurEffectType.$preset missing from installed uxdesign" }
                         bridge.applyBlur(child, preset).getOrThrow()
                         "COUIMaterialBlurEffect/$preset${exactSuffix(implementation)}"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_MATERIAL_STROKE -> {
-                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.STROKE_PREFIX)
-                            ?: choosePreset(catalog.stroke)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.STROKE_PREFIX) ?: choosePreset(catalog.stroke)
                         require(preset in catalog.stroke) { "StrokeEffectType.$preset missing from installed uxdesign" }
                         bridge.applyStroke(child, preset).getOrThrow()
                         "COUIMaterialStrokeEffect/$preset${exactSuffix(implementation)}"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_SPOTLIGHT -> {
-                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX)
-                            ?: choosePreset(catalog.spotLight)
+                        val preset = exactPreset(implementation, ColorOsCouiPresetInventory.SPOTLIGHT_PREFIX) ?: choosePreset(catalog.spotLight)
                         require(preset in catalog.spotLight) { "SpotLightType.$preset missing from installed uxdesign" }
                         bridge.applySpotLight(child, preset).getOrThrow()
                         "COUISpotLightEffect/$preset${exactSuffix(implementation)} — touch this card to drive hotspot"
                     }
                     ColorOsSystemUiExecutionRegistry.Route.COUI_TOOLBAR_STACK -> {
-                        val category = exactPreset(implementation, ColorOsCouiPresetInventory.TOOLBAR_PREFIX)
-                            ?: choosePreset(catalog.toolbarCategories)
+                        val category = exactPreset(implementation, ColorOsCouiPresetInventory.TOOLBAR_PREFIX) ?: choosePreset(catalog.toolbarCategories)
                         require(category in catalog.toolbarCategories) { "ViewCategory.$category missing from installed uxdesign" }
                         bridge.applyToolbarStack(
                             child,
@@ -362,29 +366,24 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                     }
                     else -> error("$route is not a COUI route")
                 }
-            }.onSuccess {
-                postStatus("PASS — $it")
-            }.onFailure {
-                materialBridge.getOrNull()?.clear(child)
-                removeView(child)
-                showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}")
-            }
+            }.onSuccess { postStatus("PASS — $it") }
+                .onFailure {
+                    materialBridge.getOrNull()?.clear(child)
+                    removeView(child)
+                    showBoundary("UNAVAILABLE — ${route.name}: ${describe(it)}")
+                }
         }
     }
 
     private fun exactPreset(implementation: String, prefix: String): String? =
-        implementation.takeIf { it.startsWith(prefix) }
-            ?.removePrefix(prefix)
-            ?.takeIf { it.isNotBlank() }
+        implementation.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)?.takeIf { it.isNotBlank() }
 
     private fun exactSuffix(implementation: String): String =
         if (implementation.startsWith(ColorOsCouiPresetInventory.PREFIX)) " [exact preset row]" else " [family browser]"
 
     private fun choosePreset(values: List<String>): String {
         val usable = values.filterNot {
-            it.contains("NO_EFFECT", ignoreCase = true) ||
-                it.equals("NONE", ignoreCase = true) ||
-                it.contains("DISABLE", ignoreCase = true)
+            it.contains("NO_EFFECT", ignoreCase = true) || it.equals("NONE", ignoreCase = true) || it.contains("DISABLE", ignoreCase = true)
         }.ifEmpty { values }
         require(usable.isNotEmpty()) { "installed vendor enum exposes no presets" }
         val index = (usable.lastIndex * progress).toInt().coerceIn(0, usable.lastIndex)
@@ -392,18 +391,9 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
     }
 
     private fun runClockGlass(bitmap: Bitmap) {
-        val glass = ColorOsClockGlassSurfaceView(context).apply {
-            onStatus = { postStatus(it) }
-        }
+        val glass = ColorOsClockGlassSurfaceView(context).apply { onStatus = { postStatus(it) } }
         addView(glass, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        glass.configure(
-            wallpaper = bitmap,
-            radiusPx = radiusPx,
-            glass = progress,
-            mix = 1f,
-            mask = 1f,
-            light = true,
-        )
+        glass.configure(bitmap, radiusPx, progress, 1f, 1f, true)
         postStatus("RUNNING — personality-clocks GlassEffectBuilder; waiting for real RenderEffect")
     }
 
@@ -421,17 +411,10 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             else -> error("$route is not a PostEffect surface route")
         }
         val drawable = bridge.createPostEffectDrawable(
-            bitmap = bitmap,
-            width = width,
-            height = height,
-            options = ColorOsSystemUiPostEffectBridge.PostEffectOptions(
-                cornerType = "G2",
-                cornerRadiusPx = radiusPx,
-                cornerWeight = 1f,
-                optics = modules.first,
-                gradientStroke = modules.second,
-                innerShadow = modules.third,
-            ),
+            bitmap,
+            width,
+            height,
+            ColorOsSystemUiPostEffectBridge.PostEffectOptions("G2", radiusPx, 1f, modules.first, modules.second, modules.third),
         ).getOrThrow()
         return DrawableSurfaceView(context, drawable)
     }
@@ -482,7 +465,6 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
 
     private class CouiSurfaceView(context: Context, private val radiusPx: Float) : View(context) {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x0CFFFFFF }
-
         init {
             setLayerType(LAYER_TYPE_HARDWARE, null)
             clipToOutline = true
@@ -492,7 +474,6 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
                 }
             }
         }
-
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radiusPx, radiusPx, fill)
@@ -512,7 +493,6 @@ internal class ColorOsSystemUiRouteHostView(context: Context) : FrameLayout(cont
             super.onSizeChanged(w, h, oldw, oldh)
             drawable.setBounds(0, 0, w, h)
         }
-
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             drawable.draw(canvas)
