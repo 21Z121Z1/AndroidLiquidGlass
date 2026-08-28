@@ -123,7 +123,7 @@ fun SystemUiKyantParityOverlay() {
             }
 
             BasicText(
-                "同一份严格清单同时驱动两边。选中任一核心项后，上方直接执行设备已安装 SystemUI 的 ColorOS route，下方执行该项的 Kyant 强类型 recipe；两边共用同一张输入位图。HOST/SURFACE_CONTROL 项明确显示边界，不用仿制 shader 偷换。",
+                "同一份严格清单同时驱动两边。选中任一核心项后，上方直接执行设备已安装 SystemUI 的 ColorOS route，下方执行该项的 Kyant 强类型 recipe；两边共用同一张输入位图。参数类读取当前固件实值/签名，HOST/SURFACE_CONTROL 项明确显示边界。",
                 style = parityInfo(),
             )
 
@@ -133,6 +133,7 @@ fun SystemUiKyantParityOverlay() {
                 val row = item.mapping
                 val contract = item.parityContract
                 val route = item.executionRoute
+                val delta = item.delta
                 val effective = ColorOsSystemUiAuditScope.effectiveExecution(row)
                 Column(
                     Modifier
@@ -164,6 +165,14 @@ fun SystemUiKyantParityOverlay() {
                         BasicText(contract.apiSummary, style = parityDiag())
                         BasicText(contract.rationale, style = parityDiag())
                     }
+                    if (delta == null) {
+                        BasicText("Delta · MISSING_DELTA", style = TextStyle(Color(0xFFFF8A80), 10.sp, FontWeight.Bold))
+                    } else {
+                        BasicText("Delta · ${delta.grade}", style = TextStyle(Color(0xFFFFD180), 10.sp, FontWeight.SemiBold))
+                        BasicText(delta.note, style = parityDiag())
+                        delta.colorOsSpecific.forEach { BasicText("ColorOS 特有 · $it", style = parityDiag()) }
+                        delta.kyantLimit.forEach { BasicText("Kyant 边界 · $it", style = parityDiag()) }
+                    }
                 }
 
                 BasicText("ColorOS · 当前固件原实现", style = TextStyle(Color(0xFF90CAF9), 13.sp, FontWeight.SemiBold))
@@ -173,6 +182,7 @@ fun SystemUiKyantParityOverlay() {
                         view.onStatus = { colorOsStatus = it }
                         view.configure(
                             route = route,
+                            implementationName = row.systemUiImplementation,
                             wallpaper = wallpaper,
                             radiusPx = with(density) { 34.dp.toPx() },
                             progress = routeProgress,
@@ -212,6 +222,7 @@ fun SystemUiKyantParityOverlay() {
                 val row = item.mapping
                 val contract = item.parityContract
                 val route = item.executionRoute
+                val delta = item.delta
                 val selectedRow = index == safeIndex
                 Column(
                     Modifier
@@ -239,6 +250,10 @@ fun SystemUiKyantParityOverlay() {
                         BasicText("Kyant ${contract.kind} · ${contract.recipe}", style = TextStyle(Color(0xFFB9E6C2), 9.sp))
                         BasicText(contract.primitives.joinToString(" + ") { it.name }, style = parityDiag())
                     }
+                    BasicText(
+                        delta?.let { "Delta ${it.grade}" } ?: "Delta MISSING_DELTA",
+                        style = TextStyle(if (delta != null) Color(0xFFFFD180) else Color(0xFFFF8A80), 9.sp),
+                    )
                 }
             }
             Spacer(Modifier.height(20.dp))
@@ -259,14 +274,18 @@ private fun ParityGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
         val gateColor = if (summary.coreComplete) Color(0xFF93E7A6) else Color(0xFFFF8A80)
         BasicText(
             if (summary.coreComplete) {
-                "PARITY GATE PASS · ${summary.coreContracted}/${summary.core} contracted · ${summary.coreRouted}/${summary.core} routed"
+                "PARITY GATE PASS · ${summary.coreContracted}/${summary.core} contract · ${summary.coreRouted}/${summary.core} route · ${summary.coreDeltaResolved}/${summary.core} delta"
             } else {
-                "PARITY GATE FAIL · contract ${summary.coreContractMissing} · route ${summary.coreRouteMissing} · incompatible ${summary.coreRouteIncompatible}"
+                "PARITY GATE FAIL · contract ${summary.coreContractMissing} · route ${summary.coreRouteMissing} · incompatible ${summary.coreRouteIncompatible} · delta ${summary.coreDeltaMissing}"
             },
             style = TextStyle(gateColor, 15.sp, FontWeight.SemiBold),
         )
         BasicText(
             "mechanism ${summary.parityMechanism} · composite ${summary.parityComposite} · nearest ${summary.parityNearestOnly} · host-lifecycle ${summary.parityHostLifecycle}",
+            style = parityDiag(),
+        )
+        BasicText(
+            "delta exact ${summary.deltaExactMechanism} · composite ${summary.deltaCompositeEquivalent} · nearest ${summary.deltaNearestOnly} · host ${summary.deltaHostOnly}",
             style = parityDiag(),
         )
         BasicText("direct ${summary.coreDirect} · host-bound ${summary.coreHostBound}", style = parityDiag())
@@ -278,6 +297,9 @@ private fun ParityGateCard(summary: ColorOsSystemUiAuditScope.ScopedSummary) {
         }
         summary.incompatibleRoutes.forEach {
             BasicText("INCOMPATIBLE_ROUTE · $it", style = TextStyle(Color(0xFFFFB74D), 9.sp))
+        }
+        summary.missingDeltas.forEach {
+            BasicText("MISSING_DELTA · $it", style = TextStyle(Color(0xFFFF8A80), 9.sp))
         }
     }
 }
