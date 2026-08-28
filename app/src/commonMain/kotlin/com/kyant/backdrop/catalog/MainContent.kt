@@ -35,13 +35,19 @@ fun MainContent() {
     ) {
         var destination by rememberSaveable { mutableStateOf(CatalogDestination.Home) }
 
-        // Android first tries the semantic ColorOS mapping. The older platform
-        // route remains as a compatibility/diagnostic fallback but is no longer
-        // reached for mapped Android destinations.
-        val semanticHandled = SemanticColorOsCatalogContent(
-            destination = destination,
-            onNavigate = { destination = it },
-        )
+        // The ColorOS glass playground has an even higher-priority Android
+        // research route because it needs a long-lived RuntimeShader session
+        // for frame-by-frame parameter tuning. Other destinations continue
+        // through the semantic ColorOS mapping.
+        val tuningHandled = TunableGlassPlaygroundContent(destination)
+        val semanticHandled = if (tuningHandled) {
+            true
+        } else {
+            SemanticColorOsCatalogContent(
+                destination = destination,
+                onNavigate = { destination = it },
+            )
+        }
         val platformHandled = if (semanticHandled) {
             true
         } else {
