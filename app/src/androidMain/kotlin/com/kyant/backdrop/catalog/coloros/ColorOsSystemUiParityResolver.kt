@@ -97,6 +97,10 @@ internal object ColorOsSystemUiParityResolver {
             )
         }
 
+        if (mapping.group.startsWith("自动发现 · 外部")) {
+            return externalDiscoveredContract(mapping)
+        }
+
         if (isPostEffectInfrastructure(impl)) {
             return contract(
                 ColorOsKyantParityContract.Kind.HOST_LIFECYCLE,
@@ -202,6 +206,80 @@ internal object ColorOsSystemUiParityResolver {
         )
 
         return ColorOsKyantParityContract.resolve(mapping)
+    }
+
+    private fun externalDiscoveredContract(
+        mapping: ColorOsSystemUiLiquidGlassCatalog.Mapping,
+    ): ColorOsKyantParityContract.Contract {
+        val semantic = (mapping.systemUiImplementation + " " + mapping.kyantCounterpart).lowercase()
+        return when {
+            listOf("refract", "dispersion", "chromatic", "glass").any(semantic::contains) -> contract(
+                ColorOsKyantParityContract.Kind.COMPOSITE,
+                ColorOsKyantParityContract.Recipe.CHROMATIC_REFRACTION,
+                ColorOsKyantParityContract.Primitive.DRAW_PLAIN_BACKDROP,
+                ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                ColorOsKyantParityContract.Primitive.LENS_REFRACTION,
+                ColorOsKyantParityContract.Primitive.LENS_CHROMATIC_ABERRATION,
+                ColorOsKyantParityContract.Primitive.BLUR,
+                rationale = "外部包运行时发现的 glass/refraction/dispersion 实现；Kyant 只在 lens + blur 的机制层建立对照，未知 shader/参数仍保持审计态。",
+            )
+            "spotlight" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+                ColorOsKyantParityContract.Recipe.SPOTLIGHT,
+                ColorOsKyantParityContract.Primitive.INTERACTIVE_HIGHLIGHT,
+                rationale = "外部 COUI spotlight 辅助类/资源只能映射到 Kyant 交互 Highlight 最近机制；没有证明可独立执行前不声称 1:1。",
+            )
+            "caustic" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+                ColorOsKyantParityContract.Recipe.EDGE_OPTICS,
+                ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+                ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+                rationale = "发现 caustic 命名只证明 shipping 材质层存在；Kyant 以 Highlight/Shadow 作最近参考，不宣称物理焦散等价。",
+            )
+            "innershadow" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.MECHANISM,
+                ColorOsKyantParityContract.Recipe.INNER_SHADOW,
+                ColorOsKyantParityContract.Primitive.INNER_SHADOW,
+                rationale = "外部包 inner-shadow 实现对应 Kyant InnerShadow 机制。",
+            )
+            "stroke" in semantic || "edge" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.COMPOSITE,
+                ColorOsKyantParityContract.Recipe.STROKE,
+                ColorOsKyantParityContract.Primitive.SHAPE_SDF,
+                ColorOsKyantParityContract.Primitive.HIGHLIGHT,
+                ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+                rationale = "外部包 stroke/edge 实现对照到 Shape/SDF + Highlight/Shadow；参数曲线保持 vendor-owned。",
+            )
+            "blur" in semantic || "backdrop" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.MECHANISM,
+                ColorOsKyantParityContract.Recipe.BACKDROP_BLUR,
+                ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                ColorOsKyantParityContract.Primitive.BLUR,
+                rationale = "外部包 blur/backdrop 实现对应 Kyant Backdrop + blur 机制；未知捕获后端和采样核不作等价承诺。",
+            )
+            "shadow" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.COMPOSITE,
+                ColorOsKyantParityContract.Recipe.MATERIAL_SURFACE,
+                ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                ColorOsKyantParityContract.Primitive.INNER_SHADOW,
+                ColorOsKyantParityContract.Primitive.OUTER_SHADOW,
+                rationale = "外部材质 shadow 实现以 Kyant Inner/Outer Shadow 组合对照。",
+            )
+            "material" in semantic -> contract(
+                ColorOsKyantParityContract.Kind.COMPOSITE,
+                ColorOsKyantParityContract.Recipe.MATERIAL_SURFACE,
+                ColorOsKyantParityContract.Primitive.DRAW_BACKDROP,
+                ColorOsKyantParityContract.Primitive.BACKDROP_CAPTURE,
+                ColorOsKyantParityContract.Primitive.SURFACE_TINT,
+                rationale = "运行时发现的外部 material 类/资源先对照 Kyant material surface 组合；专用执行器未证明前保持参数审计。",
+            )
+            else -> contract(
+                ColorOsKyantParityContract.Kind.NEAREST_ONLY,
+                ColorOsKyantParityContract.Recipe.RUNTIME_EFFECT_GRAPH,
+                ColorOsKyantParityContract.Primitive.RUNTIME_SHADER_EFFECT,
+                rationale = "外部包高召回扫描发现相关 effect/shader，但缺少更精确语义；保留 RuntimeEffect 邻接对照并要求运行时证据。",
+            )
+        }
     }
 
     private fun contract(
