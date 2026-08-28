@@ -35,11 +35,23 @@ fun MainContent() {
     ) {
         var destination by rememberSaveable { mutableStateOf(CatalogDestination.Home) }
 
+        // The implementation matrix is routed ahead of the semantic Android
+        // replacement pages because it intentionally renders Kyant and the
+        // recovered ColorOS paths in the same destination for A/B analysis.
+        val comparisonHandled = destination == CatalogDestination.ColorOsNativeComparison
+        if (comparisonHandled) {
+            ColorOsNativeComparisonContent()
+        }
+
         // The ColorOS glass playground has an even higher-priority Android
         // research route because it needs a long-lived RuntimeShader session
         // for frame-by-frame parameter tuning. Other destinations continue
         // through the semantic ColorOS mapping.
-        val tuningHandled = TunableGlassPlaygroundContent(destination)
+        val tuningHandled = if (comparisonHandled) {
+            true
+        } else {
+            TunableGlassPlaygroundContent(destination)
+        }
         val semanticHandled = if (tuningHandled) {
             true
         } else {
@@ -72,7 +84,7 @@ fun MainContent() {
                 CatalogDestination.Magnifier -> MagnifierContent()
 
                 CatalogDestination.GlassPlayground -> GlassPlaygroundContent()
-                CatalogDestination.ColorOsNativeComparison -> ColorOsNativeComparisonContent()
+                CatalogDestination.ColorOsNativeComparison -> Unit
                 CatalogDestination.AdaptiveLuminanceGlass -> AdaptiveLuminanceGlassContent()
                 CatalogDestination.ProgressiveBlur -> ProgressiveBlurContent()
                 CatalogDestination.ScrollContainer -> ScrollContainerContent()
